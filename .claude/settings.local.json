@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(find . -name *.swift -type f -exec grep -l \"undefined\\\\|not defined\\\\|does not exist\" {})",
-      "Bash(2)"
-    ]
-  }
-}
