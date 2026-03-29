@@ -43,14 +43,10 @@ struct AddCreditView: View {
                     }
                 }
 
-                 Section("Preview") {
+                Section("Preview") {
                     HStack(spacing: 12) {
-                        ProgressRingView(
                         ChunkyProgressRing(
                             fraction: 0,
-                            startColor: Color(hex: card.gradientStartHex),
-                            endColor: Color(hex: card.gradientEndHex),
-                            lineWidth: 5,
                             gradientStart: Color(hex: card.gradientStartHex),
                             gradientEnd: Color(hex: card.gradientEndHex),
                             strokeWidth: 6,
