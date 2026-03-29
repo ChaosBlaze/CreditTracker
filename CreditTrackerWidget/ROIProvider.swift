@@ -21,7 +21,7 @@ struct ROIProvider: TimelineProvider {
     // MARK: - Data Fetching
 
     private func fetchEntry() -> ROIEntry {
-        let schema = Schema([Card.self, Credit.self, PeriodLog.self, BonusCard.self])
+        let schema = Schema([Card.self, Credit.self, PeriodLog.self, BonusCard.self, Achievement.self, UserStats.self])
 
         let container: ModelContainer
         do {

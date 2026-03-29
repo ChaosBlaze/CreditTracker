@@ -43,12 +43,15 @@
 		AB12CD142F6E468100133B05 /* Exceptions for "CreditTracker" folder in "CreditTrackerWidget" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Models/Achievement.swift,
 				Models/BonusCard.swift,
 				Models/Card.swift,
 				Models/Credit.swift,
 				Models/Enums.swift,
 				Models/PeriodLog.swift,
+				Models/UserStats.swift,
 				Services/PeriodEngine.swift,
+				Utilities/Color+Hex.swift,
 				Utilities/DateHelpers.swift,
 			);
 			target = AB12CD062F6E468100133B05 /* CreditTrackerWidget */;
@@ -375,7 +378,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0;
+				MARKETING_VERSION = 5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shekar.CreditTracker;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -407,7 +410,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0;
+				MARKETING_VERSION = 5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shekar.CreditTracker;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
