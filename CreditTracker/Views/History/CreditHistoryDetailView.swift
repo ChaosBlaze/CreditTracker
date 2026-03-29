@@ -13,45 +13,53 @@ struct CreditHistoryDetailView: View {
     private var endColor: Color { Color(hex: card.gradientEndHex) }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                // Header card
+                AtmosphericCardView(
+                    gradientStart: startColor,
+                    gradientEnd: endColor,
+                    gradientOpacity: 0.20
+                ) {
                     HStack(spacing: 16) {
-                        ProgressRingView(
+                        ChunkyProgressRing(
                             fraction: currentFillFraction,
-                            startColor: startColor,
-                            endColor: endColor,
-                            lineWidth: 7,
+                            gradientStart: startColor,
+                            gradientEnd: endColor,
+                            strokeWidth: 8,
                             size: 64
                         )
                         VStack(alignment: .leading, spacing: 4) {
                             Text(credit.name)
-                                .font(.headline)
+                                .font(.system(size: 22, weight: .semibold))
                             Text("$\(String(format: "%.0f", credit.totalValue)) \(credit.timeframeType.displayName)")
-                                .font(.subheadline)
+                                .font(.system(size: 15))
                                 .foregroundStyle(.secondary)
                             Text("Reminder: \(credit.reminderDaysBefore) days before")
-                                .font(.caption)
+                                .font(.system(size: 13))
                                 .foregroundStyle(.tertiary)
                         }
+                        Spacer()
                     }
-                    .padding(.vertical, 4)
                 }
 
-                Section("Log History") {
-                    if sortedLogs.isEmpty {
-                        Text("No history yet")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(sortedLogs) { log in
-                            periodLogRow(log)
-                        }
+                // Period log entries
+                if sortedLogs.isEmpty {
+                    Text("No history yet")
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 40)
+                } else {
+                    ForEach(sortedLogs) { log in
+                        periodLogRow(log)
                     }
                 }
             }
-            .navigationTitle(credit.name)
-            .navigationBarTitleDisplayMode(.large)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
+        .background(Color(hex: "#0A0A0F"))
+        .navigationTitle(credit.name)
+        .navigationBarTitleDisplayMode(.large)
     }
 
     private var currentFillFraction: Double {
@@ -60,26 +68,31 @@ struct CreditHistoryDetailView: View {
 
     @ViewBuilder
     private func periodLogRow(_ log: PeriodLog) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(log.periodLabel)
-                    .font(.subheadline.weight(.medium))
-                Text("\(DateHelpers.shortDateString(log.periodStart)) – \(DateHelpers.shortDateString(log.periodEnd))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 3) {
-                StatusPill(status: log.periodStatus)
-                if log.claimedAmount > 0 {
-                    Text("$\(String(format: "%.2f", log.claimedAmount))")
-                        .font(.caption.monospacedDigit())
+        AtmosphericCardView(
+            gradientStart: startColor,
+            gradientEnd: endColor,
+            gradientOpacity: 0.06
+        ) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(log.periodLabel)
+                        .font(.system(size: 15, weight: .medium))
+                    Text("\(DateHelpers.shortDateString(log.periodStart)) – \(DateHelpers.shortDateString(log.periodEnd))")
+                        .font(.system(size: 13))
                         .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 3) {
+                    GlassStatusPill(status: log.periodStatus)
+                    if log.claimedAmount > 0 {
+                        Text("$\(String(format: "%.2f", log.claimedAmount))")
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
-        .padding(.vertical, 2)
     }
 }

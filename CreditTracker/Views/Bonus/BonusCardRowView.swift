@@ -8,44 +8,63 @@ struct BonusCardRowView: View {
     @State private var completeHapticTrigger = false
     @State private var showEditSheet = false
 
-    // Gradient palette for bonus cards (cycles by hash)
-    private var cardGradient: (Color, Color) {
-        let palettes: [(Color, Color)] = [
-            (.purple, .indigo),
-            (.orange, .pink),
-            (.teal, .cyan),
-            (.green, .mint),
-            (.blue, .purple),
-            (.red, .orange),
-        ]
-        let idx = abs(bonus.cardName.hashValue) % palettes.count
-        return palettes[idx]
+    private var startColor: Color { Self.gradientPalette(for: bonus).0 }
+    private var endColor: Color { Self.gradientPalette(for: bonus).1 }
+
+    // Build step list from bonus requirements
+    private var steps: [BonusStep] {
+        var s: [BonusStep] = []
+        if bonus.requiresPurchases {
+            s.append(BonusStep(label: "Min Spend", icon: "cart"))
+        }
+        if bonus.requiresDirectDeposit {
+            s.append(BonusStep(label: "Direct Deposit", icon: "banknote"))
+        }
+        if bonus.requiresOther {
+            s.append(BonusStep(label: bonus.otherDescription.isEmpty ? "Other" : String(bonus.otherDescription.prefix(15)), icon: "list.bullet"))
+        }
+        return s
     }
 
-    private var startColor: Color { cardGradient.0 }
-    private var endColor: Color { cardGradient.1 }
+    private var currentStep: Int {
+        var completed = 0
+        if bonus.requiresPurchases && bonus.currentPurchaseAmount >= bonus.purchaseTarget {
+            completed += 1
+        }
+        if bonus.requiresDirectDeposit && bonus.currentDirectDepositAmount >= bonus.directDepositTarget {
+            completed += 1
+        }
+        if bonus.requiresOther && bonus.isOtherCompleted {
+            completed += 1
+        }
+        return completed
+    }
+
+    private var totalSteps: Int { steps.count }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            LinearGradient(
-                colors: [startColor.opacity(0.22), endColor.opacity(0.12)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 12) {
+        AtmosphericCardView(
+            gradientStart: startColor,
+            gradientEnd: endColor
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
                 // Header
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(bonus.cardName)
-                            .font(.headline)
+                            .font(.system(size: 20, weight: .semibold))
                             .foregroundStyle(.primary)
                         Text(bonus.bonusAmount)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(startColor)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [startColor, endColor],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
                         Text("Opened \(DateHelpers.shortDateString(bonus.dateOpened))")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -65,93 +84,99 @@ struct BonusCardRowView: View {
                     }
                 }
 
-                if !bonus.isCompleted {
-                    Divider()
-                    requirementsSection
+                if !bonus.isCompleted && !steps.isEmpty {
+                    // Step progress indicator
+                    StepProgressView(
+                        steps: steps,
+                        currentStep: currentStep,
+                        accentColor: startColor
+                    )
+                    .padding(.vertical, 4)
+
+                    // Progress summary
+                    Text("\(currentStep) of \(totalSteps) steps complete")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+
+                    // Detailed progress bars
+                    if bonus.requiresPurchases {
+                        requirementRow(
+                            label: "Minimum Spend",
+                            icon: bonus.currentPurchaseAmount >= bonus.purchaseTarget ? "checkmark.circle.fill" : "cart",
+                            iconColor: bonus.currentPurchaseAmount >= bonus.purchaseTarget ? .green : startColor,
+                            current: bonus.currentPurchaseAmount,
+                            target: bonus.purchaseTarget,
+                            fraction: bonus.purchaseFraction
+                        )
+                    }
+
+                    if bonus.requiresDirectDeposit {
+                        requirementRow(
+                            label: "Direct Deposit",
+                            icon: bonus.currentDirectDepositAmount >= bonus.directDepositTarget ? "checkmark.circle.fill" : "banknote",
+                            iconColor: bonus.currentDirectDepositAmount >= bonus.directDepositTarget ? .green : startColor,
+                            current: bonus.currentDirectDepositAmount,
+                            target: bonus.directDepositTarget,
+                            fraction: bonus.directDepositFraction
+                        )
+                    }
+
+                    if bonus.requiresOther {
+                        otherRequirementRow
+                    }
+
+                    // Complete button
+                    if bonus.allRequirementsMet {
+                        Button {
+                            markComplete()
+                        } label: {
+                            Label("Mark Bonus Complete", systemImage: "star.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.plain)
+                        .background {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [startColor, endColor],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                        }
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    }
                 }
             }
-            .padding(16)
         }
-        .glassEffect(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .sensoryFeedback(.success, trigger: completeHapticTrigger)
         .sheet(isPresented: $showEditSheet) {
             EditBonusView(bonus: bonus)
         }
     }
 
-    // MARK: - Requirements
+    // MARK: - Requirement Row
 
     @ViewBuilder
-    private var requirementsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if bonus.requiresPurchases {
-                purchaseProgressRow
-            }
-            if bonus.requiresDirectDeposit {
-                directDepositRow
-            }
-            if bonus.requiresOther {
-                otherRequirementRow
-            }
-
-            // Complete button – shown when all requirements are met
-            if bonus.allRequirementsMet {
-                Button {
-                    markComplete()
-                } label: {
-                    Label("Mark Bonus Complete", systemImage: "star.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
-            }
-        }
-    }
-
-    private var purchaseProgressRow: some View {
+    private func requirementRow(label: String, icon: String, iconColor: Color, current: Double, target: Double, fraction: Double) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Image(systemName: bonus.currentPurchaseAmount >= bonus.purchaseTarget
-                      ? "checkmark.circle.fill" : "cart")
-                    .foregroundStyle(bonus.currentPurchaseAmount >= bonus.purchaseTarget ? .green : startColor)
+                Image(systemName: icon)
+                    .foregroundStyle(iconColor)
                     .font(.caption)
-                Text("Minimum Spend")
-                    .font(.caption.weight(.medium))
+                Text(label)
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.primary)
                 Spacer()
-                Text("$\(String(format: "%.0f", bonus.currentPurchaseAmount)) / $\(String(format: "%.0f", bonus.purchaseTarget))")
-                    .font(.caption.monospacedDigit())
+                Text("$\(String(format: "%.0f", current)) / $\(String(format: "%.0f", target))")
+                    .font(.system(size: 13, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
             LinearProgressBar(
-                fraction: bonus.purchaseFraction,
-                startColor: startColor,
-                endColor: endColor
-            )
-        }
-    }
-
-    private var directDepositRow: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Image(systemName: bonus.currentDirectDepositAmount >= bonus.directDepositTarget
-                      ? "checkmark.circle.fill" : "banknote")
-                    .foregroundStyle(bonus.currentDirectDepositAmount >= bonus.directDepositTarget ? .green : startColor)
-                    .font(.caption)
-                Text("Direct Deposit")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.primary)
-                Spacer()
-                Text("$\(String(format: "%.0f", bonus.currentDirectDepositAmount)) / $\(String(format: "%.0f", bonus.directDepositTarget))")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            LinearProgressBar(
-                fraction: bonus.directDepositFraction,
+                fraction: fraction,
                 startColor: startColor,
                 endColor: endColor
             )
@@ -168,7 +193,7 @@ struct BonusCardRowView: View {
                     .foregroundStyle(bonus.isOtherCompleted ? .green : .secondary)
                     .font(.body)
                 Text(bonus.otherDescription.isEmpty ? "Other Requirement" : bonus.otherDescription)
-                    .font(.caption.weight(.medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.leading)
                 Spacer()
@@ -182,6 +207,21 @@ struct BonusCardRowView: View {
         bonus.isCompleted = true
         try? context.save()
         completeHapticTrigger.toggle()
+    }
+
+    // MARK: - Gradient Palette (public for BonusView access)
+
+    static func gradientPalette(for bonus: BonusCard) -> (Color, Color) {
+        let palettes: [(Color, Color)] = [
+            (.purple, .indigo),
+            (.orange, .pink),
+            (.teal, .cyan),
+            (.green, .mint),
+            (.blue, .purple),
+            (.red, .orange),
+        ]
+        let idx = abs(bonus.cardName.hashValue) % palettes.count
+        return palettes[idx]
     }
 }
 

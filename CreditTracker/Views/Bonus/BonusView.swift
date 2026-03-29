@@ -10,40 +10,62 @@ struct BonusView: View {
     private var active: [BonusCard] { bonuses.filter { !$0.isCompleted } }
     private var completed: [BonusCard] { bonuses.filter { $0.isCompleted } }
 
+    private var lifetimeBonusTotal: String {
+        // Sum up completed bonus amounts (parse numeric portion)
+        let total = completed.reduce(0.0) { sum, bonus in
+            let numeric = bonus.bonusAmount.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+            return sum + (Double(numeric) ?? 0)
+        }
+        if total > 0 {
+            return "$\(Int(total))"
+        }
+        return "$0"
+    }
+
     var body: some View {
         NavigationStack {
-            Group {
-                if bonuses.isEmpty {
-                    ScrollView {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    if bonuses.isEmpty {
                         emptyState
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                    }
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 16) {
-                            if !active.isEmpty {
-                                sectionHeader("Active", systemImage: "sparkles")
-                                    .padding(.horizontal, 4)
-                                    .padding(.top, 4)
-                                ForEach(active) { bonus in
-                                    BonusCardRowView(bonus: bonus)
-                                }
-                            }
-                            if !completed.isEmpty {
-                                sectionHeader("Completed", systemImage: "checkmark.seal.fill")
-                                    .padding(.horizontal, 4)
-                                    .padding(.top, active.isEmpty ? 4 : 8)
-                                ForEach(completed) { bonus in
-                                    completedBonusRow(bonus)
-                                }
+                    } else {
+                        // Active bonuses
+                        if !active.isEmpty {
+                            sectionHeader("Active", systemImage: "sparkles", count: active.count)
+                                .padding(.horizontal, 4)
+
+                            ForEach(active) { bonus in
+                                BonusCardRowView(bonus: bonus)
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+
+                        // Completed bonuses
+                        if !completed.isEmpty {
+                            sectionHeader("Completed", systemImage: "checkmark.seal.fill", count: completed.count)
+                                .padding(.horizontal, 4)
+                                .padding(.top, active.isEmpty ? 0 : 8)
+
+                            // Lifetime bonus counter
+                            HStack {
+                                Image(systemName: "banknote.fill")
+                                    .foregroundStyle(.green)
+                                Text("\(lifetimeBonusTotal) earned from bonuses")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 4)
+
+                            ForEach(completed) { bonus in
+                                completedBonusRow(bonus)
+                            }
+                        }
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
+            .background(Color(hex: "#0A0A0F"))
             .navigationTitle("Bonuses")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -68,14 +90,32 @@ struct BonusView: View {
 
     private var emptyState: some View {
         VStack(spacing: 20) {
-            Image(systemName: "gift.circle")
-                .font(.system(size: 56))
-                .foregroundStyle(.secondary)
+            ZStack {
+                Image(systemName: "gift.circle")
+                    .font(.system(size: 56))
+                    .foregroundStyle(.secondary)
+
+                // Sparkle decorations
+                Image(systemName: "sparkle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.yellow.opacity(0.6))
+                    .offset(x: 30, y: -25)
+
+                Image(systemName: "sparkle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.yellow.opacity(0.4))
+                    .offset(x: -28, y: -20)
+
+                Image(systemName: "sparkle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.yellow.opacity(0.5))
+                    .offset(x: 20, y: 25)
+            }
 
             VStack(spacing: 8) {
-                Text("No Bonuses Yet")
+                Text("Track Your Sign-Up Bonuses")
                     .font(.title2.weight(.semibold))
-                Text("Track sign-up bonuses and\nminimum spend requirements.")
+                Text("Monitor spend requirements, direct deposits,\nand bonus milestones.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -84,7 +124,7 @@ struct BonusView: View {
             Button {
                 showAddBonus = true
             } label: {
-                Label("Add Your First Bonus", systemImage: "plus")
+                Label("Add Bonus", systemImage: "plus")
                     .font(.headline)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
@@ -92,10 +132,11 @@ struct BonusView: View {
             .glassEffect(in: Capsule())
         }
         .padding(.top, 80)
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
-    private func sectionHeader(_ title: String, systemImage: String) -> some View {
+    private func sectionHeader(_ title: String, systemImage: String, count: Int) -> some View {
         HStack(spacing: 6) {
             Image(systemName: systemImage)
                 .font(.caption.weight(.semibold))
@@ -103,40 +144,48 @@ struct BonusView: View {
             Text(title)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
+
+            Text("\(count)")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.secondary.opacity(0.3), in: Capsule())
+
             Spacer()
         }
-        .padding(.horizontal, 4)
         .padding(.top, 4)
     }
 
     @ViewBuilder
     private func completedBonusRow(_ bonus: BonusCard) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.title2)
-                .foregroundStyle(.green)
+        let palette = BonusCardRowView.gradientPalette(for: bonus)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(bonus.cardName)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(bonus.bonusAmount)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        AtmosphericCardView(
+            gradientStart: palette.0,
+            gradientEnd: palette.1,
+            gradientOpacity: 0.10
+        ) {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.title2)
+                    .foregroundStyle(.green)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(bonus.cardName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(bonus.bonusAmount)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                GlassStatusPill(label: "Earned", icon: "checkmark", tint: .green)
             }
-
-            Spacer()
-
-            Text("Earned")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.green, in: Capsule())
         }
-        .padding(14)
-        .glassEffect(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .opacity(0.75)
+        .opacity(0.8)
     }
 }
 

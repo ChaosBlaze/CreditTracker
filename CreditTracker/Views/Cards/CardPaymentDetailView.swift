@@ -45,7 +45,7 @@ struct CardPaymentDetailView: View {
                     .frame(height: 150)
                 }
 
-                // Reminder settings (only shown when a due day is selected)
+                // Reminder settings
                 if selectedDueDay > 0 {
                     Section("Reminder") {
                         Toggle("Enable Reminder", isOn: $reminderEnabled)
@@ -102,45 +102,34 @@ struct CardPaymentDetailView: View {
     // MARK: - Card preview
 
     private var cardPreviewHeader: some View {
-        ZStack(alignment: .topLeading) {
-            LinearGradient(
-                colors: [startColor.opacity(0.65), endColor.opacity(0.50)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        AtmosphericCardView(
+            gradientStart: startColor,
+            gradientEnd: endColor,
+            gradientOpacity: 0.25
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                // Gradient accent bar
+                LinearGradient(
+                    colors: [startColor, endColor],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(height: 4)
+                .clipShape(Capsule())
 
-            HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(
-                        LinearGradient(
-                            colors: [startColor, endColor],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 4, height: 40)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(card.name)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text("$\(Int(card.annualFee))/yr annual fee")
-                        .font(.caption)
+                Text(card.name)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text("$\(Int(card.annualFee))/yr annual fee")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                if selectedDueDay > 0 {
+                    Label("Due on the \(ordinal(selectedDueDay))", systemImage: "calendar")
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
-                    if selectedDueDay > 0 {
-                        Label("Due on the \(ordinal(selectedDueDay))", systemImage: "calendar")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
                 }
-
-                Spacer()
             }
-            .padding(16)
         }
-        .glassEffect(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: startColor.opacity(0.30), radius: 10, x: 0, y: 4)
         .padding(.vertical, 8)
         .padding(.horizontal, 16)
     }

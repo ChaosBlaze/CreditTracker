@@ -2,45 +2,81 @@ import SwiftUI
 import SwiftData
 
 struct CardsView: View {
+    @Environment(\.modelContext) private var context
     @Query(sort: \Card.sortOrder) private var cards: [Card]
     @State private var selectedCard: Card? = nil
+    @State private var showAddCard = false
 
     var body: some View {
         NavigationStack {
-            Group {
-                if cards.isEmpty {
-                    ContentUnavailableView(
-                        "No Cards",
-                        systemImage: "creditcard",
-                        description: Text("Add a card from the Dashboard to set up payment reminders.")
-                    )
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(cards) { card in
-                                CardPaymentRow(card: card)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        selectedCard = card
-                                    }
+            ScrollView {
+                LazyVStack(spacing: 16) {
+                    ForEach(cards) { card in
+                        CardTileView(card: card)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedCard = card
                             }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
                     }
+                    .onMove { from, to in
+                        reorderCards(from: from, to: to)
+                    }
+
+                    // Add Card button (dashed outline)
+                    addCardButton
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
+            .background(Color(hex: "#0A0A0F"))
             .navigationTitle("Cards")
             .sheet(item: $selectedCard) { card in
                 CardPaymentDetailView(card: card)
             }
+            .sheet(isPresented: $showAddCard) {
+                AddCardView()
+            }
         }
+    }
+
+    private var addCardButton: some View {
+        Button {
+            showAddCard = true
+        } label: {
+            VStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 32, weight: .light))
+                    .foregroundStyle(.secondary)
+                Text("Add Card")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 100)
+            .background {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(
+                        style: StrokeStyle(lineWidth: 1.5, dash: [8, 6])
+                    )
+                    .foregroundStyle(.secondary.opacity(0.3))
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func reorderCards(from: IndexSet, to: Int) {
+        var ordered = Array(cards)
+        ordered.move(fromOffsets: from, toOffset: to)
+        for (index, card) in ordered.enumerated() {
+            card.sortOrder = index
+        }
+        try? context.save()
     }
 }
 
-// MARK: - Card row
+// MARK: - Card Tile View
 
-struct CardPaymentRow: View {
+struct CardTileView: View {
     let card: Card
 
     private var startColor: Color { Color(hex: card.gradientStartHex) }
@@ -68,63 +104,86 @@ struct CardPaymentRow: View {
         return daysUntilDue <= card.paymentReminderDaysBefore
     }
 
+    // Credit status dots
+    private var creditDots: [(Color, Bool)] {
+        card.credits.sorted { $0.name < $1.name }.map { credit in
+            guard let period = PeriodEngine.activePeriodLog(for: credit) else {
+                return (Color.gray, false)
+            }
+            switch period.periodStatus {
+            case .claimed:
+                return (startColor, true) // filled
+            case .partiallyClaimed:
+                return (startColor, true)
+            case .missed:
+                return (.red, true)
+            case .pending:
+                return (Color.gray.opacity(0.4), false) // hollow
+            }
+        }
+    }
+
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            LinearGradient(
-                colors: [startColor.opacity(0.35), endColor.opacity(0.20)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-
-            HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(
-                        LinearGradient(
-                            colors: [startColor, endColor],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 4, height: 44)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(card.name)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text("$\(Int(card.annualFee))/yr")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    HStack(spacing: 6) {
-                        if isDueSoon {
-                            PulsingDot()
-                        }
-                        if let dueDay = card.paymentDueDay {
-                            Text("Due \(ordinal(dueDay))")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(isDueSoon ? Color.orange : Color.secondary)
-                        } else {
-                            Text("No due date set")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
+        AtmosphericCardView(
+            gradientStart: startColor,
+            gradientEnd: endColor,
+            gradientOpacity: 0.25
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top) {
+                    // Left column
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(card.name)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Text("$\(Int(card.annualFee))/yr")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.secondary)
                     }
 
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
+                    Spacer()
+
+                    // Right column: due date
+                    VStack(alignment: .trailing, spacing: 4) {
+                        if let dueDay = card.paymentDueDay {
+                            HStack(spacing: 4) {
+                                if isDueSoon {
+                                    PulsingDot()
+                                }
+                                Image(systemName: "calendar")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                Text("Due \(ordinal(dueDay))")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(isDueSoon ? .orange : .secondary)
+                            }
+                        } else {
+                            Text("Set date")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(startColor)
+                        }
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                // Bottom: credit status dots
+                if !creditDots.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(Array(creditDots.enumerated()), id: \.offset) { _, dot in
+                            Circle()
+                                .fill(dot.0)
+                                .frame(width: 6, height: 6)
+                                .opacity(dot.1 ? 1.0 : 0.4)
+                        }
+                        Spacer()
+                    }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
         }
-        .glassEffect(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: startColor.opacity(0.25), radius: 10, x: 0, y: 4)
+        .parallaxEffect(magnitude: 3)
     }
 
     private func ordinal(_ day: Int) -> String {

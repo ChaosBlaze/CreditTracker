@@ -7,7 +7,14 @@ struct CreditTrackerApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     let modelContainer: ModelContainer = {
-        let schema = Schema([Card.self, Credit.self, PeriodLog.self, BonusCard.self])
+        let schema = Schema([
+            Card.self,
+            Credit.self,
+            PeriodLog.self,
+            BonusCard.self,
+            Achievement.self,
+            UserStats.self
+        ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false, cloudKitDatabase: .none)
         do {
             return try ModelContainer(for: schema, configurations: [config])
@@ -26,6 +33,8 @@ struct CreditTrackerApp: App {
                         hasSeededData = true
                         await NotificationManager.shared.requestPermission()
                     }
+                    // Always seed achievements (idempotent)
+                    GamificationEngine.seedAchievements(context: modelContainer.mainContext)
                 }
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -42,6 +51,10 @@ struct CreditTrackerApp: App {
             let allCredits = cards.flatMap { $0.credits }
             PeriodEngine.evaluateAndAdvancePeriods(for: allCredits, context: context)
             try context.save()
+
+            // Update gamification streaks
+            GamificationEngine.updateStreak(cards: cards, context: context)
+
             Task { @MainActor in
                 NotificationManager.shared.rescheduleAll(credits: allCredits)
                 NotificationManager.shared.rescheduleAllPaymentReminders(cards: cards)
@@ -53,22 +66,39 @@ struct CreditTrackerApp: App {
 }
 
 struct MainTabView: View {
+    @Query(sort: \Card.sortOrder) private var cards: [Card]
+
     var body: some View {
-        TabView {
-            Tab("Credits", systemImage: "creditcard.fill") {
-                DashboardView()
-            }
-            Tab("Cards", systemImage: "creditcard") {
-                CardsView()
-            }
-            Tab("Bonuses", systemImage: "sparkles") {
-                BonusView()
-            }
-            Tab("History", systemImage: "clock.fill") {
-                HistoryView()
-            }
-            Tab("Settings", systemImage: "gear") {
-                SettingsView()
+        ZStack {
+            // Animated MeshGradient background behind all tabs
+            MeshGradientBackground(cards: Array(cards))
+
+            // Dark charcoal base with subtle radial gradient
+            RadialGradient(
+                colors: [Color(hex: "#0A0A0F").opacity(0.7), Color(hex: "#0A0A0F")],
+                center: .center,
+                startRadius: 50,
+                endRadius: 500
+            )
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+
+            TabView {
+                Tab("Credits", systemImage: "creditcard.fill") {
+                    DashboardView()
+                }
+                Tab("Cards", systemImage: "rectangle.on.rectangle.angled") {
+                    CardsView()
+                }
+                Tab("Bonuses", systemImage: "star.circle.fill") {
+                    BonusView()
+                }
+                Tab("History", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90") {
+                    HistoryView()
+                }
+                Tab("Settings", systemImage: "gearshape.fill") {
+                    SettingsView()
+                }
             }
         }
     }
