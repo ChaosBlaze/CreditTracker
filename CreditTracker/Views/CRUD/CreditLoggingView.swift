@@ -166,6 +166,14 @@ struct CreditLoggingView: View {
         }
 
         try? context.save()
+
+        // Mirror the updated PeriodLog to Firestore after committing locally.
+        // Fire-and-forget: SwiftData is already updated; Firestore is the async mirror.
+        let periodToSync = period
+        Task {
+            await FirestoreSyncService.shared.upload(periodToSync)
+        }
+
         successHapticTrigger.toggle()
         dismiss()
     }

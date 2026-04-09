@@ -15,4 +15,9 @@ enum Constants {
     static let discordReminderMinuteKey = "discordReminderMinute"
     static let discordReminderDefaultHour = 21
     static let discordReminderDefaultMinute = 30
+
+    // MARK: - Firestore Sync
+    /// UserDefaults key for the stable user/device ID that namespaces Firestore documents.
+    /// Replace the stored value with a Firebase Auth UID to enable true multi-device sync.
+    static let firestoreUserIDKey = "firestoreUserID"
 }
