@@ -55,12 +55,61 @@ extension PeriodLog: FirestoreSyncable {
 
     static var firestoreCollectionName: String { "periodLogs" }
 
-    /// Only `status` and `claimedAmount` are synced.
-    /// Card and Credit definitions remain local/owner-managed.
     func firestorePayload() -> [String: Any] {
-        [
+        var payload: [String: Any] = [
+            "periodLabel": periodLabel,
+            "periodStart": periodStart,
+            "periodEnd": periodEnd,
             "status": status,
             "claimedAmount": claimedAmount
         ]
+        
+        // Foreign Key to link back to parent Credit
+        if let creditID = credit?.id.uuidString {
+            payload["creditID"] = creditID
+        }
+        
+        return payload
+    }
+}
+
+// MARK: - Card Conformance
+
+extension Card: FirestoreSyncable {
+    var syncID: String { id.uuidString }
+    static var firestoreCollectionName: String { "cards" }
+
+    func firestorePayload() -> [String: Any] {
+        [
+            "name": name,
+            "annualFee": annualFee,
+            "gradientStartHex": gradientStartHex,
+            "gradientEndHex": gradientEndHex,
+            "sortOrder": sortOrder
+        ]
+    }
+}
+
+// MARK: - Credit Conformance
+
+extension Credit: FirestoreSyncable {
+    var syncID: String { id.uuidString }
+    static var firestoreCollectionName: String { "credits" }
+
+    func firestorePayload() -> [String: Any] {
+        var payload: [String: Any] = [
+            "name": name,
+            "totalValue": totalValue,
+            "timeframe": timeframe,
+            "reminderDaysBefore": reminderDaysBefore,
+            "customReminderEnabled": customReminderEnabled
+        ]
+        
+        // Foreign Key to link back to parent Card
+        if let cardID = card?.id.uuidString {
+            payload["cardID"] = cardID
+        }
+        
+        return payload
     }
 }
