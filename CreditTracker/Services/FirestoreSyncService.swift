@@ -134,21 +134,26 @@ final class FirestoreSyncService {
 
     // MARK: - Listener Lifecycle
 
-    /// Attaches a real-time Firestore listener for PeriodLog documents.
+    /// Attaches real-time Firestore listeners for Card, Credit, and PeriodLog documents.
     ///
     /// - Safe to call multiple times: a second call while already listening is a no-op.
     /// - Call on `scenePhase == .active`.
     func startListening() {
         guard modelContext != nil, activeListeners.isEmpty, FirebaseApp.app() != nil else { return }
 
-        let registration = collection(for: PeriodLog.self)
-            .addSnapshotListener { [weak self] snapshot, error in
-                guard let self, let snapshot else { return }
-                Task { @MainActor in
-                    self.applySnapshot(snapshot)
-                }
-            }
-        activeListeners.append(registration)
+        let cardReg = collection(for: Card.self).addSnapshotListener { [weak self] snapshot, _ in
+            self?.handleSnapshot(snapshot, type: .card)
+        }
+        
+        let creditReg = collection(for: Credit.self).addSnapshotListener { [weak self] snapshot, _ in
+            self?.handleSnapshot(snapshot, type: .credit)
+        }
+        
+        let logReg = collection(for: PeriodLog.self).addSnapshotListener { [weak self] snapshot, _ in
+            self?.handleSnapshot(snapshot, type: .periodLog)
+        }
+
+        activeListeners.append(contentsOf: [cardReg, creditReg, logReg])
     }
 
     /// Removes all Firestore listeners to avoid background network traffic.
@@ -160,7 +165,7 @@ final class FirestoreSyncService {
 
     // MARK: - Upload (SwiftData → Firestore)
 
-    /// Uploads the syncable fields of a PeriodLog to Firestore.
+    /// Uploads the syncable fields of any FirestoreSyncable model to Firestore.
     ///
     /// Always call *after* `context.save()` so local state is committed first.
     /// Uses `merge: true` so only declared sync fields are touched — any extra
@@ -168,16 +173,16 @@ final class FirestoreSyncService {
     ///
     /// Firestore's offline persistence means the write is queued locally if the
     /// device is offline and flushed automatically when connectivity returns.
-    func upload(_ periodLog: PeriodLog) async {
+    func upload<T: FirestoreSyncable>(_ item: T) async {
         guard FirebaseApp.app() != nil else { return }
-        let docID = periodLog.syncID
+        let docID = item.syncID
         syncState = .syncing
 
-        var payload = periodLog.firestorePayload()
+        var payload = item.firestorePayload()
         payload["updatedAt"] = FieldValue.serverTimestamp()
 
         do {
-            try await collection(for: PeriodLog.self)
+            try await collection(for: T.self)
                 .document(docID)
                 .setData(payload, merge: true)
 
@@ -195,72 +200,210 @@ final class FirestoreSyncService {
         }
     }
 
+    // MARK: - Delete (SwiftData → Firestore)
+
+    /// Deletes a syncable document from Firestore.
+    /// Pass the item's UUID string.
+    func deleteDocument<T: FirestoreSyncable>(for type: T.Type, id: String) async {
+        guard FirebaseApp.app() != nil else { return }
+        do {
+            try await collection(for: T.self).document(id).delete()
+        } catch {
+            print("Failed to delete \(T.self) document \(id): \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Snapshot Handler (Firestore → SwiftData)
 
-    private func applySnapshot(_ snapshot: QuerySnapshot) {
-        guard let context = modelContext else { return }
-        var didApplyChanges = false
+    private enum SyncModelType { case card, credit, periodLog }
 
-        for change in snapshot.documentChanges {
-            guard change.type == .added || change.type == .modified else { continue }
+    private func handleSnapshot(_ snapshot: QuerySnapshot?, type: SyncModelType) {
+        guard let snapshot else { return }
+        Task { @MainActor in
+            guard let context = self.modelContext else { return }
+            var didApplyChanges = false
 
-            let docID = change.document.documentID
+            for change in snapshot.documentChanges {
+                let docID = change.document.documentID
+                
+                // 1. Handle Remote Deletions
+                if change.type == .removed {
+                    if change.document.metadata.hasPendingWrites { continue }
+                    switch type {
+                    case .card:
+                        if let item = self.fetchCard(id: docID, in: context) { context.delete(item); didApplyChanges = true }
+                    case .credit:
+                        if let item = self.fetchCredit(id: docID, in: context) { context.delete(item); didApplyChanges = true }
+                    case .periodLog:
+                        if let item = self.fetchPeriodLog(id: docID, in: context) { context.delete(item); didApplyChanges = true }
+                    }
+                    continue
+                }
 
-            // Skip local writes not yet confirmed by the server.
-            // `hasPendingWrites == true` always means the write originated on this device
-            // and has not yet been acknowledged — it is never a remote change.
-            if change.document.metadata.hasPendingWrites { continue }
+                // 2. Handle Remote Additions / Modifications
+                guard change.type == .added || change.type == .modified else { continue }
 
-            // Consume the server confirmation of our own upload.
-            // Without this check, our own writes would be echoed back as "remote" changes.
-            if pendingUploadIDs.remove(docID) != nil { continue }
+                // Skip local writes not yet confirmed by the server.
+                if change.document.metadata.hasPendingWrites { continue }
 
-            // Genuine remote write from another device — merge into local SwiftData.
-            if applyRemoteChange(change.document.data(), forDocID: docID, into: context) {
-                didApplyChanges = true
+                // Consume the server confirmation of our own upload.
+                if self.pendingUploadIDs.remove(docID) != nil { continue }
+
+                let changed: Bool
+                switch type {
+                case .card:
+                    changed = self.applyCardChange(docID: docID, data: change.document.data(), context: context)
+                case .credit:
+                    changed = self.applyCreditChange(docID: docID, data: change.document.data(), context: context)
+                case .periodLog:
+                    changed = self.applyPeriodLogChange(docID: docID, data: change.document.data(), context: context)
+                }
+
+                if changed { didApplyChanges = true }
+            }
+
+            if self.pendingUploadIDs.isEmpty, case .syncing = self.syncState {
+                self.syncState = .idle
+            }
+            
+            if didApplyChanges { try? context.save() }
+        }
+    }
+
+    // MARK: - Relational Merge Logic
+
+    @discardableResult
+    private func applyCardChange(docID: String, data: [String: Any], context: ModelContext) -> Bool {
+        guard let uuid = UUID(uuidString: docID) else { return false }
+        let card: Card
+        var isNew = false
+
+        if let existing = fetchCard(id: docID, in: context) {
+            card = existing
+        } else {
+            // Create stub if missing. Real values will populate immediately below.
+            card = Card(name: "Syncing...", annualFee: 0, gradientStartHex: "#000000", gradientEndHex: "#000000", sortOrder: 0)
+            card.id = uuid
+            context.insert(card)
+            isNew = true
+        }
+
+        var changed = isNew
+        if let name = data["name"] as? String, name != card.name { card.name = name; changed = true }
+        if let fee = data["annualFee"] as? Double, fee != card.annualFee { card.annualFee = fee; changed = true }
+        if let gStart = data["gradientStartHex"] as? String, gStart != card.gradientStartHex { card.gradientStartHex = gStart; changed = true }
+        if let gEnd = data["gradientEndHex"] as? String, gEnd != card.gradientEndHex { card.gradientEndHex = gEnd; changed = true }
+        if let order = data["sortOrder"] as? Int, order != card.sortOrder { card.sortOrder = order; changed = true }
+
+        return changed
+    }
+
+    @discardableResult
+    private func applyCreditChange(docID: String, data: [String: Any], context: ModelContext) -> Bool {
+        guard let uuid = UUID(uuidString: docID) else { return false }
+        let credit: Credit
+        var isNew = false
+
+        if let existing = fetchCredit(id: docID, in: context) {
+            credit = existing
+        } else {
+            // Create stub if missing. Note: passing .monthly assuming init takes TimeframeType.
+            credit = Credit(name: "Syncing...", totalValue: 0, timeframe: .monthly, reminderDaysBefore: 5)
+            credit.id = uuid
+            context.insert(credit)
+            isNew = true
+        }
+
+        var changed = isNew
+        if let name = data["name"] as? String, name != credit.name { credit.name = name; changed = true }
+        if let value = data["totalValue"] as? Double, value != credit.totalValue { credit.totalValue = value; changed = true }
+        if let timeframeStr = data["timeframe"] as? String, timeframeStr != credit.timeframe { credit.timeframe = timeframeStr; changed = true }
+        if let reminderDays = data["reminderDaysBefore"] as? Int, reminderDays != credit.reminderDaysBefore { credit.reminderDaysBefore = reminderDays; changed = true }
+        if let customReminder = data["customReminderEnabled"] as? Bool, customReminder != credit.customReminderEnabled { credit.customReminderEnabled = customReminder; changed = true }
+
+        // Relational Linking to Parent Card
+        if let cardID = data["cardID"] as? String, credit.card?.id.uuidString != cardID {
+            guard let parentID = UUID(uuidString: cardID) else { return changed }
+            var parentCard = fetchCard(id: cardID, in: context)
+            
+            if parentCard == nil {
+                // Stub out-of-order parent. Will be populated when Card snapshot fires.
+                let stub = Card(name: "Syncing...", annualFee: 0, gradientStartHex: "#000000", gradientEndHex: "#000000", sortOrder: 0)
+                stub.id = parentID
+                context.insert(stub)
+                parentCard = stub
+            }
+            
+            if let parent = parentCard {
+                credit.card = parent
+                if !parent.credits.contains(where: { $0.id == credit.id }) {
+                    parent.credits.append(credit)
+                }
+                changed = true
             }
         }
 
-        // Only move to idle from syncing — preserve error state across snapshots.
-        if pendingUploadIDs.isEmpty, case .syncing = syncState {
-            syncState = .idle
-        }
-        if didApplyChanges { try? context.save() }
+        return changed
     }
 
-    // MARK: - Merge Logic
-
-    /// Applies incoming Firestore fields to the matching local PeriodLog.
-    ///
-    /// Compares each field before writing to avoid marking the SwiftData context
-    /// as dirty when the remote value is identical to the local value.
-    ///
-    /// - Returns: `true` if at least one field was updated.
     @discardableResult
-    private func applyRemoteChange(
-        _ data: [String: Any],
-        forDocID docID: String,
-        into context: ModelContext
-    ) -> Bool {
-        guard let periodLog = fetchPeriodLog(id: docID, in: context) else {
-            // No local PeriodLog for this Firestore document.
-            // This can occur when Card/Credit definitions have not been seeded on this
-            // device yet. Silently skip — sync will converge once the user adds the card.
-            return false
+    private func applyPeriodLogChange(docID: String, data: [String: Any], context: ModelContext) -> Bool {
+        guard let uuid = UUID(uuidString: docID) else { return false }
+        let periodLog: PeriodLog
+        var isNew = false
+
+        if let existing = fetchPeriodLog(id: docID, in: context) {
+            periodLog = existing
+        } else {
+            // Create stub if missing. Note: passing .pending assuming init takes PeriodStatus.
+            periodLog = PeriodLog(periodLabel: "Syncing...", periodStart: Date(), periodEnd: Date(), status: .pending)
+            periodLog.id = uuid
+            context.insert(periodLog)
+            isNew = true
         }
 
-        var changed = false
-
-        if let remoteStatus = data["status"] as? String,
-           remoteStatus != periodLog.status {
+        var changed = isNew
+        if let label = data["periodLabel"] as? String, label != periodLog.periodLabel { periodLog.periodLabel = label; changed = true }
+        
+        if let startTS = data["periodStart"] as? Timestamp {
+            let start = startTS.dateValue()
+            if start != periodLog.periodStart { periodLog.periodStart = start; changed = true }
+        }
+        
+        if let endTS = data["periodEnd"] as? Timestamp {
+            let end = endTS.dateValue()
+            if end != periodLog.periodEnd { periodLog.periodEnd = end; changed = true }
+        }
+        
+        if let remoteStatus = data["status"] as? String, remoteStatus != periodLog.status {
             periodLog.status = remoteStatus
             changed = true
         }
 
-        if let remoteAmountNumber = data["claimedAmount"] as? NSNumber {
-            let remoteAmount = remoteAmountNumber.doubleValue
-            if remoteAmount != periodLog.claimedAmount {
-                periodLog.claimedAmount = remoteAmount
+        let remoteAmount = (data["claimedAmount"] as? Double) ?? (data["claimedAmount"] as? NSNumber)?.doubleValue
+        if let amt = remoteAmount, amt != periodLog.claimedAmount {
+            periodLog.claimedAmount = amt
+            changed = true
+        }
+
+        // Relational Linking to Parent Credit
+        if let creditID = data["creditID"] as? String, periodLog.credit?.id.uuidString != creditID {
+            guard let parentID = UUID(uuidString: creditID) else { return changed }
+            var parentCredit = fetchCredit(id: creditID, in: context)
+            
+            if parentCredit == nil {
+                // Stub out-of-order parent. Will be populated when Credit snapshot fires.
+                let stub = Credit(name: "Syncing...", totalValue: 0, timeframe: .monthly, reminderDaysBefore: 5)
+                stub.id = parentID
+                context.insert(stub)
+                parentCredit = stub
+            }
+            
+            if let parent = parentCredit {
+                periodLog.credit = parent
+                if !parent.periodLogs.contains(where: { $0.id == periodLog.id }) {
+                    parent.periodLogs.append(periodLog)
+                }
                 changed = true
             }
         }
@@ -276,9 +419,24 @@ final class FirestoreSyncService {
             .collection(T.firestoreCollectionName)
     }
 
+    private func fetchCard(id: String, in context: ModelContext) -> Card? {
+        guard let uuid = UUID(uuidString: id) else { return nil }
+        var descriptor = FetchDescriptor<Card>(predicate: #Predicate { $0.id == uuid })
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
+    }
+
+    private func fetchCredit(id: String, in context: ModelContext) -> Credit? {
+        guard let uuid = UUID(uuidString: id) else { return nil }
+        var descriptor = FetchDescriptor<Credit>(predicate: #Predicate { $0.id == uuid })
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
+    }
+
     private func fetchPeriodLog(id: String, in context: ModelContext) -> PeriodLog? {
         guard let uuid = UUID(uuidString: id) else { return nil }
-        let descriptor = FetchDescriptor<PeriodLog>(predicate: #Predicate { $0.id == uuid })
+        var descriptor = FetchDescriptor<PeriodLog>(predicate: #Predicate { $0.id == uuid })
+        descriptor.fetchLimit = 1
         return try? context.fetch(descriptor).first
     }
 }

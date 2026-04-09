@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var syncService = FirestoreSyncService.shared
     @State private var showResetConfirmation = false
     @State private var showResetDone = false
+    @State private var showJoinFamilySheet = false
 
     var body: some View {
         NavigationStack {
@@ -21,8 +22,10 @@ struct SettingsView: View {
                 notificationSection
                 defaultsSection
                 syncSection
+                familySyncSection
                 dataSection
                 aboutSection
+                debugSection
                 developerSignatureSection
             }
             .listStyle(.insetGrouped)
@@ -182,6 +185,40 @@ struct SettingsView: View {
         }
     }
 
+    private var familySyncSection: some View {
+        Section("Family Sync") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Your Shared Family ID")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                HStack {
+                    Text(syncService.userID)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                    
+                    Spacer()
+                    
+                    Button {
+                        UIPasteboard.general.string = syncService.userID
+                        let generator = UINotificationFeedbackGenerator()
+                        generator.notificationOccurred(.success)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            
+            Button("Join Existing Family") {
+                showJoinFamilySheet = true
+            }
+        }
+        .sheet(isPresented: $showJoinFamilySheet) {
+            JoinFamilySheet(modelContext: context)
+        }
+    }
+
     private var dataSection: some View {
         Section("Data") {
             Button {
@@ -200,6 +237,31 @@ struct SettingsView: View {
             LabeledContent("iOS Target", value: "26.0+")
             LabeledContent("Bundle ID", value: Constants.bundleID)
                 .font(.caption)
+        }
+    }
+
+    private var debugSection: some View {
+        Section("Debug (Temporary)") {
+            Button("Force Upload All Data") {
+                Task { @MainActor in
+                    let cards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
+                    for card in cards {
+                        await syncService.upload(card)
+                    }
+                    
+                    let credits = (try? context.fetch(FetchDescriptor<Credit>())) ?? []
+                    for credit in credits {
+                        await syncService.upload(credit)
+                    }
+                    
+                    let logs = (try? context.fetch(FetchDescriptor<PeriodLog>())) ?? []
+                    for log in logs {
+                        await syncService.upload(log)
+                    }
+                    
+                    print("Finished uploading \(cards.count) cards, \(credits.count) credits, and \(logs.count) logs.")
+                }
+            }
         }
     }
 
@@ -296,6 +358,65 @@ struct SettingsView: View {
         }
 
         showResetDone = true
+    }
+}
+
+struct JoinFamilySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    var modelContext: ModelContext
+    
+    @State private var inputID: String = ""
+    @State private var errorMessage: String?
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("Enter Family ID"), footer: Text("Joining a family will wipe your current local cards and replace them with the shared family data. This cannot be undone.")) {
+                    TextField("Paste Family ID Here", text: $inputID)
+                        .font(.system(.body, design: .monospaced))
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                    }
+                }
+                
+                Button(role: .destructive) {
+                    joinFamily()
+                } label: {
+                    Text("Wipe Data & Join Family")
+                        .frame(maxWidth: .infinity)
+                }
+                // Only enable the button if they've pasted something
+                .disabled(inputID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .navigationTitle("Join Family")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+    
+    private func joinFamily() {
+        let id = inputID.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try FirestoreSyncService.shared.joinFamilySync(id: id, context: modelContext)
+            
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.success)
+            
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.error)
+        }
     }
 }
 
