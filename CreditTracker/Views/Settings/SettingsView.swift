@@ -10,7 +10,8 @@ struct SettingsView: View {
     @AppStorage(Constants.discordReminderHourKey) private var discordReminderHour = Constants.discordReminderDefaultHour
     @AppStorage(Constants.discordReminderMinuteKey) private var discordReminderMinute = Constants.discordReminderDefaultMinute
 
-    @ObservedObject private var notificationManager = NotificationManager.shared
+    @State private var notificationManager = NotificationManager.shared
+    @State private var syncService = FirestoreSyncService.shared
     @State private var showResetConfirmation = false
     @State private var showResetDone = false
 
@@ -19,6 +20,7 @@ struct SettingsView: View {
             List {
                 notificationSection
                 defaultsSection
+                syncSection
                 dataSection
                 aboutSection
                 developerSignatureSection
@@ -126,6 +128,57 @@ struct SettingsView: View {
                     displayedComponents: .hourAndMinute
                 )
             }
+        }
+    }
+
+    private var syncSection: some View {
+        Section("Firestore Sync") {
+            HStack {
+                Label("Status", systemImage: "arrow.triangle.2.circlepath.icloud")
+                Spacer()
+                syncStateBadge
+            }
+            HStack {
+                Label("Last Synced", systemImage: "clock")
+                Spacer()
+                if let date = syncService.lastSyncedAt {
+                    Text(date, style: .relative)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Never")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            LabeledContent("Device ID", value: String(syncService.userID.prefix(8)) + "…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var syncStateBadge: some View {
+        switch syncService.syncState {
+        case .idle:
+            Text(syncService.lastSyncedAt == nil ? "Not configured" : "Connected")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(syncService.lastSyncedAt == nil ? Color.secondary : Color.green)
+        case .syncing:
+            HStack(spacing: 4) {
+                ProgressView().scaleEffect(0.7)
+                Text("Syncing")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.blue)
+            }
+        case .error(let msg):
+            Text("Error")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.red, in: Capsule())
+                .help(msg)
         }
     }
 

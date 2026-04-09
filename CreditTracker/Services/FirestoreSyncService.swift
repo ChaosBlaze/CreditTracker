@@ -39,6 +39,7 @@ final class FirestoreSyncService {
     // MARK: - Observable State
 
     private(set) var syncState: SyncState = .idle
+    private(set) var lastSyncedAt: Date? = nil
 
     // MARK: - Private State
 
@@ -137,6 +138,7 @@ final class FirestoreSyncService {
             // Mark as pending after a successful local write.
             // The listener will consume this entry when the server confirms the write.
             pendingUploadIDs.insert(docID)
+            lastSyncedAt = Date()
         } catch {
             // A hard write failure (e.g. security rules rejection).
             // Don't insert into pendingUploadIDs — let the listener apply Firestore's state.
