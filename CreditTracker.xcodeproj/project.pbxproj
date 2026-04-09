@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 100;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -25,14 +25,12 @@
 /* Begin PBXCopyFilesBuildPhase section */
 		AB12CD102F6E468100133B05 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 13;
+			dstSubfolder = PlugIns;
 			files = (
 				AB12CD112F6E468100133B05 /* CreditTrackerWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
@@ -45,6 +43,7 @@
 		AB12CD142F6E468100133B05 /* Exceptions for "CreditTracker" folder in "CreditTrackerWidget" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				"GoogleService-Info.plist",
 				Models/BonusCard.swift,
 				Models/Card.swift,
 				Models/Credit.swift,
@@ -76,19 +75,15 @@
 /* Begin PBXFrameworksBuildPhase section */
 		9D68FF752F6E468100133B05 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 				9D5AFB8C2F876B3F00D6CF8C /* FirebaseCore in Frameworks */,
 				9D5AFB8E2F876B7300D6CF8C /* FirebaseFirestore in Frameworks */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AB12CD032F6E468100133B05 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
@@ -158,14 +153,10 @@
 			);
 			buildRules = (
 			);
-			dependencies = (
-			);
 			fileSystemSynchronizedGroups = (
 				AB12CD022F6E468100133B05 /* CreditTrackerWidget */,
 			);
 			name = CreditTrackerWidget;
-			packageProductDependencies = (
-			);
 			productName = CreditTrackerWidget;
 			productReference = AB12CD012F6E468100133B05 /* CreditTrackerWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -200,7 +191,7 @@
 			packageReferences = (
 				9DC51F062F875843008AFD6C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
-			preferredProjectObjectVersion = 77;
+			preferredProjectObjectVersion = 100;
 			productRefGroup = 9D68FF792F6E468100133B05 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -214,34 +205,26 @@
 /* Begin PBXResourcesBuildPhase section */
 		9D68FF762F6E468100133B05 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AB12CD052F6E468100133B05 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		9D68FF742F6E468100133B05 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AB12CD042F6E468100133B05 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
@@ -254,7 +237,7 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		9D68FF832F6E468200133B05 /* Debug */ = {
+		9D68FF832F6E468200133B05 /* Debug configuration for PBXProject "CreditTracker" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -317,7 +300,7 @@
 			};
 			name = Debug;
 		};
-		9D68FF842F6E468200133B05 /* Release */ = {
+		9D68FF842F6E468200133B05 /* Release configuration for PBXProject "CreditTracker" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -373,7 +356,7 @@
 			};
 			name = Release;
 		};
-		9D68FF862F6E468200133B05 /* Debug */ = {
+		9D68FF862F6E468200133B05 /* Debug configuration for PBXNativeTarget "CreditTracker" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -405,7 +388,7 @@
 			};
 			name = Debug;
 		};
-		9D68FF872F6E468200133B05 /* Release */ = {
+		9D68FF872F6E468200133B05 /* Release configuration for PBXNativeTarget "CreditTracker" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -437,7 +420,7 @@
 			};
 			name = Release;
 		};
-		AB12CD072F6E468100133B05 /* Debug */ = {
+		AB12CD072F6E468100133B05 /* Debug configuration for PBXNativeTarget "CreditTrackerWidget" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -464,7 +447,7 @@
 			};
 			name = Debug;
 		};
-		AB12CD082F6E468100133B05 /* Release */ = {
+		AB12CD082F6E468100133B05 /* Release configuration for PBXNativeTarget "CreditTrackerWidget" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -496,28 +479,25 @@
 		9D68FF732F6E468100133B05 /* Build configuration list for PBXProject "CreditTracker" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				9D68FF832F6E468200133B05 /* Debug */,
-				9D68FF842F6E468200133B05 /* Release */,
+				9D68FF832F6E468200133B05 /* Debug configuration for PBXProject "CreditTracker" */,
+				9D68FF842F6E468200133B05 /* Release configuration for PBXProject "CreditTracker" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		9D68FF852F6E468200133B05 /* Build configuration list for PBXNativeTarget "CreditTracker" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				9D68FF862F6E468200133B05 /* Debug */,
-				9D68FF872F6E468200133B05 /* Release */,
+				9D68FF862F6E468200133B05 /* Debug configuration for PBXNativeTarget "CreditTracker" */,
+				9D68FF872F6E468200133B05 /* Release configuration for PBXNativeTarget "CreditTracker" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		AB12CD092F6E468100133B05 /* Build configuration list for PBXNativeTarget "CreditTrackerWidget" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				AB12CD072F6E468100133B05 /* Debug */,
-				AB12CD082F6E468100133B05 /* Release */,
+				AB12CD072F6E468100133B05 /* Debug configuration for PBXNativeTarget "CreditTrackerWidget" */,
+				AB12CD082F6E468100133B05 /* Release configuration for PBXNativeTarget "CreditTrackerWidget" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */

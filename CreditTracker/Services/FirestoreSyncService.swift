@@ -175,7 +175,10 @@ final class FirestoreSyncService {
             }
         }
 
-        if pendingUploadIDs.isEmpty { syncState = .idle }
+        // Only move to idle from syncing — preserve error state across snapshots.
+        if pendingUploadIDs.isEmpty, case .syncing = syncState {
+            syncState = .idle
+        }
         if didApplyChanges { try? context.save() }
     }
 
@@ -208,10 +211,12 @@ final class FirestoreSyncService {
             changed = true
         }
 
-        if let remoteAmount = data["claimedAmount"] as? Double,
-           remoteAmount != periodLog.claimedAmount {
-            periodLog.claimedAmount = remoteAmount
-            changed = true
+        if let remoteAmountNumber = data["claimedAmount"] as? NSNumber {
+            let remoteAmount = remoteAmountNumber.doubleValue
+            if remoteAmount != periodLog.claimedAmount {
+                periodLog.claimedAmount = remoteAmount
+                changed = true
+            }
         }
 
         return changed
