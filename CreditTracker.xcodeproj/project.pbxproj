@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		AB12CD112F6E468100133B05 /* CreditTrackerWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AB12CD012F6E468100133B05 /* CreditTrackerWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		812493C6639241538CB2147D /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0A844031E2B94B6184C2B884 /* FirebaseCore */; };
+		24081A206B464A51B5101CA3 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = F3D8CDEC4A3B4F16989AAD70 /* FirebaseFirestore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,6 +78,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				812493C6639241538CB2147D /* FirebaseCore in Frameworks */,
+				24081A206B464A51B5101CA3 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -129,6 +133,8 @@
 			);
 			name = CreditTracker;
 			packageProductDependencies = (
+				0A844031E2B94B6184C2B884 /* FirebaseCore */,
+				F3D8CDEC4A3B4F16989AAD70 /* FirebaseFirestore */,
 			);
 			productName = CreditTracker;
 			productReference = 9D68FF782F6E468100133B05 /* CreditTracker.app */;
@@ -238,6 +244,19 @@
 			targetProxy = AB12CD132F6E468100133B05 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0A844031E2B94B6184C2B884 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9DC51F062F875843008AFD6C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		F3D8CDEC4A3B4F16989AAD70 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9DC51F062F875843008AFD6C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		9D68FF832F6E468200133B05 /* Debug */ = {
