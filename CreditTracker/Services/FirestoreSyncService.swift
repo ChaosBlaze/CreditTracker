@@ -86,6 +86,52 @@ final class FirestoreSyncService {
         startListening()
     }
 
+    // MARK: - Family Sync Management
+
+    /// Joins an existing Family Sync group using a shared ID.
+    ///
+    /// This method performs the necessary steps to safely transition the device
+    /// to a new shared data source:
+    /// 1. Stops all active network listeners.
+    /// 2. Wipes the local SwiftData cache to prevent mixing user data.
+    /// 3. Updates the local identity to the shared Family ID.
+    /// 4. Restarts the sync engine to pull the remote data.
+    func joinFamilySync(id: String, context: ModelContext) throws {
+        guard id != userID else { return }
+        
+        stopListening()
+        
+        do {
+            try wipeLocalData(context: context)
+        } catch {
+            throw SyncError.localWipeFailed(underlying: error)
+        }
+        
+        userID = id
+        UserDefaults.standard.set(id, forKey: Constants.firestoreUserIDKey)
+        UserDefaults.standard.set(true, forKey: "isFamilySyncEnabled") // Marker you can use in UI
+        
+        startListening()
+    }
+
+    /// Completely wipes the local SwiftData cache.
+    /// Explicitly fetches and deletes all relevant models to ensure no orphaned data remains
+    /// when switching to a new Family ID.
+    private func wipeLocalData(context: ModelContext) throws {
+        // Scalability Note: If you add new root @Model classes in the future (e.g., BonusCard),
+        // ensure they are fetched and deleted here to prevent orphaned data.
+        let cards = try context.fetch(FetchDescriptor<Card>())
+        cards.forEach { context.delete($0) }
+        
+        let credits = try context.fetch(FetchDescriptor<Credit>())
+        credits.forEach { context.delete($0) }
+        
+        let logs = try context.fetch(FetchDescriptor<PeriodLog>())
+        logs.forEach { context.delete($0) }
+        
+        try context.save()
+    }
+
     // MARK: - Listener Lifecycle
 
     /// Attaches a real-time Firestore listener for PeriodLog documents.

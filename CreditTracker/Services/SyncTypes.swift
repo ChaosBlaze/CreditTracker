@@ -14,6 +14,7 @@ enum SyncState: Equatable {
 enum SyncError: LocalizedError {
     case notConfigured
     case uploadFailed(id: String, underlying: Error)
+    case localWipeFailed(underlying: Error)
 
     var errorDescription: String? {
         switch self {
@@ -21,6 +22,8 @@ enum SyncError: LocalizedError {
             return "FirestoreSyncService must be configured before use. Call configure(modelContext:) at app startup."
         case .uploadFailed(let id, let error):
             return "Firestore upload failed for PeriodLog \(id): \(error.localizedDescription)"
+        case .localWipeFailed(let error):
+            return "Failed to wipe local data before joining family sync: \(error.localizedDescription)"
         }
     }
 }
