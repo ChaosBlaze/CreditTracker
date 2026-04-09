@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import FirebaseCore
 
 @main
 struct CreditTrackerApp: App {
@@ -16,11 +17,23 @@ struct CreditTrackerApp: App {
         }
     }()
 
+    init() {
+        // FirebaseApp.configure() reads GoogleService-Info.plist from the app bundle.
+        // Add that file to the Xcode target after creating a project in the Firebase console.
+        FirebaseApp.configure()
+    }
+
     var body: some Scene {
         WindowGroup {
             MainTabView()
                 .modelContainer(modelContainer)
                 .task {
+                    // Wire up the sync service to the live model context and start listening.
+                    // This runs on the MainActor and is guaranteed to execute before any
+                    // user interaction reaches the views.
+                    FirestoreSyncService.shared.configure(modelContext: modelContainer.mainContext)
+                    FirestoreSyncService.shared.startListening()
+
                     if !hasSeededData {
                         SeedDataManager.seed(context: modelContainer.mainContext)
                         hasSeededData = true
@@ -29,8 +42,21 @@ struct CreditTrackerApp: App {
                 }
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
+            switch newPhase {
+            case .active:
                 evaluatePeriodsOnActivation()
+                // Re-attach listeners when returning from background.
+                // startListening() is a no-op if already listening.
+                Task { @MainActor in
+                    FirestoreSyncService.shared.startListening()
+                }
+            case .background:
+                // Remove listeners to avoid unnecessary network traffic while backgrounded.
+                Task { @MainActor in
+                    FirestoreSyncService.shared.stopListening()
+                }
+            default:
+                break
             }
         }
     }
