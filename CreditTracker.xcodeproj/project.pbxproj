@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9D5AFB8C2F876B3F00D6CF8C /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9D5AFB8B2F876B3F00D6CF8C /* FirebaseCore */; };
+		9D5AFB8E2F876B7300D6CF8C /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 9D5AFB8D2F876B7300D6CF8C /* FirebaseFirestore */; };
 		AB12CD112F6E468100133B05 /* CreditTrackerWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AB12CD012F6E468100133B05 /* CreditTrackerWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -76,6 +78,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9D5AFB8C2F876B3F00D6CF8C /* FirebaseCore in Frameworks */,
+				9D5AFB8E2F876B7300D6CF8C /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,11 +93,19 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		9D5AFB8A2F876B1C00D6CF8C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		9D68FF6F2F6E468100133B05 = {
 			isa = PBXGroup;
 			children = (
 				9D68FF7A2F6E468100133B05 /* CreditTracker */,
 				AB12CD022F6E468100133B05 /* CreditTrackerWidget */,
+				9D5AFB8A2F876B1C00D6CF8C /* Frameworks */,
 				9D68FF792F6E468100133B05 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -129,6 +141,8 @@
 			);
 			name = CreditTracker;
 			packageProductDependencies = (
+				9D5AFB8B2F876B3F00D6CF8C /* FirebaseCore */,
+				9D5AFB8D2F876B7300D6CF8C /* FirebaseFirestore */,
 			);
 			productName = CreditTracker;
 			productReference = 9D68FF782F6E468100133B05 /* CreditTracker.app */;
@@ -518,6 +532,19 @@
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		9D5AFB8B2F876B3F00D6CF8C /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9DC51F062F875843008AFD6C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		9D5AFB8D2F876B7300D6CF8C /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9DC51F062F875843008AFD6C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 9D68FF702F6E468100133B05 /* Project object */;
 }

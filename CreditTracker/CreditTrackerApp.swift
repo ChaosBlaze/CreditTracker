@@ -19,8 +19,12 @@ struct CreditTrackerApp: App {
 
     init() {
         // FirebaseApp.configure() reads GoogleService-Info.plist from the app bundle.
-        // Add that file to the Xcode target after creating a project in the Firebase console.
-        FirebaseApp.configure()
+        // Guard against a missing or misconfigured plist so the app doesn't crash at launch.
+        if let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+           let plist = NSDictionary(contentsOfFile: path),
+           plist["GOOGLE_APP_ID"] != nil {
+            FirebaseApp.configure()
+        }
     }
 
     var body: some Scene {

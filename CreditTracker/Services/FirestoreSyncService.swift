@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import FirebaseCore
 import FirebaseFirestore
 
 // MARK: - FirestoreSyncService
@@ -30,13 +31,14 @@ import FirebaseFirestore
 /// is used, which provides single-device cloud backup. Call `setUserID(_:)` with a
 /// Firebase Auth UID after sign-in to enable true cross-device sync.
 @MainActor
-final class FirestoreSyncService: ObservableObject {
+@Observable
+final class FirestoreSyncService {
 
     static let shared = FirestoreSyncService()
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
-    @Published private(set) var syncState: SyncState = .idle
+    private(set) var syncState: SyncState = .idle
 
     // MARK: - Private State
 
@@ -90,7 +92,7 @@ final class FirestoreSyncService: ObservableObject {
     /// - Safe to call multiple times: a second call while already listening is a no-op.
     /// - Call on `scenePhase == .active`.
     func startListening() {
-        guard modelContext != nil, activeListeners.isEmpty else { return }
+        guard modelContext != nil, activeListeners.isEmpty, FirebaseApp.app() != nil else { return }
 
         let registration = collection(for: PeriodLog.self)
             .addSnapshotListener { [weak self] snapshot, error in
@@ -120,6 +122,7 @@ final class FirestoreSyncService: ObservableObject {
     /// Firestore's offline persistence means the write is queued locally if the
     /// device is offline and flushed automatically when connectivity returns.
     func upload(_ periodLog: PeriodLog) async {
+        guard FirebaseApp.app() != nil else { return }
         let docID = periodLog.syncID
         syncState = .syncing
 
