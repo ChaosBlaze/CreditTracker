@@ -115,20 +115,18 @@ final class FirestoreSyncService {
     }
 
     /// Completely wipes the local SwiftData cache.
-    /// Explicitly fetches and deletes all relevant models to ensure no orphaned data remains
-    /// when switching to a new Family ID.
+    /// Deletes root models only — cascade delete rules handle their children.
+    /// IMPORTANT: Any new root @Model type added to the schema must be listed here.
     private func wipeLocalData(context: ModelContext) throws {
-        // Scalability Note: If you add new root @Model classes in the future (e.g., BonusCard),
-        // ensure they are fetched and deleted here to prevent orphaned data.
+        // Card → Credit (cascade) → PeriodLog (cascade): deleting all Cards is sufficient.
         let cards = try context.fetch(FetchDescriptor<Card>())
         cards.forEach { context.delete($0) }
-        
-        let credits = try context.fetch(FetchDescriptor<Credit>())
-        credits.forEach { context.delete($0) }
-        
-        let logs = try context.fetch(FetchDescriptor<PeriodLog>())
-        logs.forEach { context.delete($0) }
-        
+
+        // BonusCard has no parent relationship so cascade cannot reach it.
+        // Must be deleted explicitly to prevent orphaned data after a family join.
+        let bonusCards = try context.fetch(FetchDescriptor<BonusCard>())
+        bonusCards.forEach { context.delete($0) }
+
         try context.save()
     }
 
@@ -178,6 +176,13 @@ final class FirestoreSyncService {
         let docID = item.syncID
         syncState = .syncing
 
+        // Insert BEFORE the await. The main actor is free to run other enqueued
+        // tasks (including snapshot listener callbacks) while this function is
+        // suspended at the network call below. If we inserted after, a fast
+        // listener delivery during that window would not find the ID and would
+        // incorrectly re-apply our own write back to SwiftData.
+        pendingUploadIDs.insert(docID)
+
         var payload = item.firestorePayload()
         payload["updatedAt"] = FieldValue.serverTimestamp()
 
@@ -186,13 +191,12 @@ final class FirestoreSyncService {
                 .document(docID)
                 .setData(payload, merge: true)
 
-            // Mark as pending after a successful local write.
-            // The listener will consume this entry when the server confirms the write.
-            pendingUploadIDs.insert(docID)
             lastSyncedAt = Date()
+            // syncState resets to .idle via handleSnapshot once pendingUploadIDs drains.
         } catch {
-            // A hard write failure (e.g. security rules rejection).
-            // Don't insert into pendingUploadIDs — let the listener apply Firestore's state.
+            // Write failed — remove the pre-inserted marker so the listener can
+            // re-apply Firestore's authoritative state if needed.
+            pendingUploadIDs.remove(docID)
             syncState = .error(
                 SyncError.uploadFailed(id: docID, underlying: error).localizedDescription
                 ?? "Upload failed"
@@ -211,6 +215,22 @@ final class FirestoreSyncService {
         } catch {
             print("Failed to delete \(T.self) document \(id): \(error.localizedDescription)")
         }
+    }
+
+    /// Safely deletes a Card and explicitly deletes all of its nested Credits and 
+    /// PeriodLogs from Firestore. 
+    ///
+    /// Call this *before* `context.delete(card)` so the relationships are still intact.
+    func deleteCardCascading(_ card: Card) async {
+        // 1. Capture all IDs before any SwiftData deletion happens
+        let cardID = card.syncID
+        let creditIDs = card.credits.map { $0.syncID }
+        let logIDs = card.credits.flatMap { $0.periodLogs }.map { $0.syncID }
+        
+        // 2. Delete from Firestore in reverse dependency order
+        for id in logIDs { await deleteDocument(for: PeriodLog.self, id: id) }
+        for id in creditIDs { await deleteDocument(for: Credit.self, id: id) }
+        await deleteDocument(for: Card.self, id: cardID)
     }
 
     // MARK: - Snapshot Handler (Firestore → SwiftData)

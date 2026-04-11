@@ -338,26 +338,39 @@ struct SettingsView: View {
     }
 
     private func resetData() {
-        // Fetch and delete all existing cards (cascade deletes credits + period logs)
-        let existing = (try? context.fetch(FetchDescriptor<Card>())) ?? []
-        for card in existing {
-            context.delete(card)
-        }
-        try? context.save()
-
-        // Re-seed
-        hasSeededData = false
-        SeedDataManager.seed(context: context)
-        hasSeededData = true
-
-        // Reschedule notifications with freshly fetched data
         Task { @MainActor in
-            let freshCards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
-            let allCredits = freshCards.flatMap { $0.credits }
-            NotificationManager.shared.rescheduleAll(credits: allCredits)
-        }
+            let sync = FirestoreSyncService.shared
 
-        showResetDone = true
+            // 1. Snapshot all document IDs before local deletion so we can remove
+            //    the corresponding Firestore documents. We do this first because
+            //    SwiftData cascade rules will invalidate Credit/PeriodLog references
+            //    the moment their parent Card is deleted.
+            let logsToRemove    = (try? context.fetch(FetchDescriptor<PeriodLog>())) ?? []
+            let creditsToRemove = (try? context.fetch(FetchDescriptor<Credit>())) ?? []
+            let cardsToRemove   = (try? context.fetch(FetchDescriptor<Card>())) ?? []
+
+            // 2. Delete from Firestore in reverse dependency order so remote devices
+            //    don't briefly see orphaned Credits pointing at deleted Cards.
+            for log    in logsToRemove    { await sync.deleteDocument(for: PeriodLog.self, id: log.syncID) }
+            for credit in creditsToRemove { await sync.deleteDocument(for: Credit.self,    id: credit.syncID) }
+            for card   in cardsToRemove   { await sync.deleteDocument(for: Card.self,      id: card.syncID) }
+
+            // 3. Delete from SwiftData. Card cascade handles Credits + PeriodLogs.
+            for card in cardsToRemove { context.delete(card) }
+            try? context.save()
+
+            // 4. Re-seed locally and push fresh data to Firestore.
+            hasSeededData = false
+            await SeedDataManager.seed(context: context)
+            hasSeededData = true
+
+            // 5. Reschedule notifications against the new data.
+            let freshCards  = (try? context.fetch(FetchDescriptor<Card>())) ?? []
+            let allCredits  = freshCards.flatMap { $0.credits }
+            NotificationManager.shared.rescheduleAll(credits: allCredits)
+
+            showResetDone = true
+        }
     }
 }
 

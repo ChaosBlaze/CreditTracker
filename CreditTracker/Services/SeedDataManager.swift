@@ -100,9 +100,17 @@ struct SeedDataManager {
         ),
     ]
 
+    /// Seeds default cards into SwiftData and immediately pushes them to Firestore
+    /// so all family devices receive the data via their snapshot listeners.
+    ///
+    /// Upload order is Card → Credit → PeriodLog, matching the dependency graph.
+    /// This guarantees that when a Credit document lands on a remote device, its
+    /// parent Card stub already exists (or arrives in the same batch).
     @MainActor
-    static func seed(context: ModelContext, now: Date = Date()) {
+    static func seed(context: ModelContext, now: Date = Date()) async {
         var seededCards: [Card] = []
+        var seededCredits: [Credit] = []
+        var seededLogs: [PeriodLog] = []
 
         for (index, seedCard) in seedCards.enumerated() {
             let card = Card(
@@ -125,6 +133,7 @@ struct SeedDataManager {
                 credit.card = card
                 card.credits.append(credit)
                 context.insert(credit)
+                seededCredits.append(credit)
 
                 let window = PeriodEngine.currentPeriod(for: credit, referenceDate: now)
                 let log = PeriodLog(
@@ -136,6 +145,7 @@ struct SeedDataManager {
                 log.credit = credit
                 credit.periodLogs.append(log)
                 context.insert(log)
+                seededLogs.append(log)
             }
         }
 
@@ -143,7 +153,15 @@ struct SeedDataManager {
             try context.save()
         } catch {
             print("SeedDataManager save error: \(error)")
+            return  // Don't upload partial data if the local save failed.
         }
+
+        // Push to Firestore in dependency order so remote devices can reconstruct
+        // the full relational graph without gaps.
+        let sync = FirestoreSyncService.shared
+        for card in seededCards    { await sync.upload(card) }
+        for credit in seededCredits { await sync.upload(credit) }
+        for log in seededLogs      { await sync.upload(log) }
 
         NotificationManager.shared.rescheduleAllPaymentReminders(cards: seededCards)
     }

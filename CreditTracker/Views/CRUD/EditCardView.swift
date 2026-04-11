@@ -60,8 +60,16 @@ struct EditCardView: View {
                 Section {
                     Button(role: .destructive) {
                         deleteWarningTrigger.toggle()
+                        // Capture the ID before deleting the SwiftData object —
+                        // the model reference is invalid after context.delete().
+                        let cardID = card.id.uuidString
                         context.delete(card)
                         try? context.save()
+                        // Fire-and-forget: Firestore delete runs asynchronously so
+                        // the sheet can dismiss immediately without blocking the UI.
+                        Task {
+                            await FirestoreSyncService.shared.deleteDocument(for: Card.self, id: cardID)
+                        }
                         dismiss()
                     } label: {
                         HStack {
@@ -96,8 +104,15 @@ struct EditCardView: View {
         card.annualFee = Double(annualFee) ?? 0
         card.gradientStartHex = startColor.toHex()
         card.gradientEndHex = endColor.toHex()
+        // 1. Commit locally first so the model reflects the new state.
         try? context.save()
         saveHapticTrigger.toggle()
+        // 2. Push to Firestore asynchronously — sheet dismisses without waiting.
+        //    Pattern: always save to SwiftData before upload() so the payload
+        //    captures the committed state.
+        Task {
+            await FirestoreSyncService.shared.upload(card)
+        }
         dismiss()
     }
 }

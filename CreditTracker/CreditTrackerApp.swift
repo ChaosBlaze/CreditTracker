@@ -39,7 +39,7 @@ struct CreditTrackerApp: App {
                     FirestoreSyncService.shared.startListening()
 
                     if !hasSeededData {
-                        SeedDataManager.seed(context: modelContainer.mainContext)
+                        await SeedDataManager.seed(context: modelContainer.mainContext)
                         hasSeededData = true
                         await NotificationManager.shared.requestPermission()
                     }
