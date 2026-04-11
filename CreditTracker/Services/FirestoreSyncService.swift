@@ -161,7 +161,13 @@ final class FirestoreSyncService {
             self?.handleSnapshot(snapshot, type: .familySettings)
         }
 
-        activeListeners.append(contentsOf: [cardReg, creditReg, logReg, settingsReg])
+        // BonusCard documents live in their own sub-collection and are synced
+        // independently of the card/credit/periodLog hierarchy.
+        let bonusReg = collection(for: BonusCard.self).addSnapshotListener { [weak self] snapshot, _ in
+            self?.handleSnapshot(snapshot, type: .bonusCard)
+        }
+
+        activeListeners.append(contentsOf: [cardReg, creditReg, logReg, settingsReg, bonusReg])
     }
 
     /// Removes all Firestore listeners to avoid background network traffic.
@@ -245,7 +251,7 @@ final class FirestoreSyncService {
 
     // MARK: - Snapshot Handler (Firestore → SwiftData)
 
-    private enum SyncModelType { case card, credit, periodLog, familySettings }
+    private enum SyncModelType { case card, credit, periodLog, familySettings, bonusCard }
 
     private func handleSnapshot(_ snapshot: QuerySnapshot?, type: SyncModelType) {
         guard let snapshot else { return }
@@ -271,6 +277,8 @@ final class FirestoreSyncService {
                         // removed — the singleton should persist on-device even during transient
                         // cloud inconsistencies or family-ID migrations.
                         break
+                    case .bonusCard:
+                        if let item = self.fetchBonusCard(id: docID, in: context) { context.delete(item); didApplyChanges = true }
                     }
                     continue
                 }
@@ -294,6 +302,8 @@ final class FirestoreSyncService {
                     changed = self.applyPeriodLogChange(docID: docID, data: change.document.data(), context: context)
                 case .familySettings:
                     changed = self.applyFamilySettingsChange(docID: docID, data: change.document.data(), context: context)
+                case .bonusCard:
+                    changed = self.applyBonusCardChange(docID: docID, data: change.document.data(), context: context)
                 }
 
                 if changed { didApplyChanges = true }
@@ -570,5 +580,73 @@ final class FirestoreSyncService {
         var descriptor = FetchDescriptor<PeriodLog>(predicate: #Predicate { $0.id == uuid })
         descriptor.fetchLimit = 1
         return try? context.fetch(descriptor).first
+    }
+
+    private func fetchBonusCard(id: String, in context: ModelContext) -> BonusCard? {
+        guard let uuid = UUID(uuidString: id) else { return nil }
+        var descriptor = FetchDescriptor<BonusCard>(predicate: #Predicate { $0.id == uuid })
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
+    }
+
+    // MARK: - BonusCard Merge Logic
+
+    /// Merges a remote `BonusCard` Firestore document into the local SwiftData store.
+    ///
+    /// Creates a stub entry when the document arrives before the local row exists
+    /// (e.g. first sync on a new device). Each field is only written when it
+    /// actually differs from the local value to minimise unnecessary SwiftData
+    /// dirty-tracking and UI refreshes.
+    @discardableResult
+    private func applyBonusCardChange(docID: String, data: [String: Any], context: ModelContext) -> Bool {
+        guard let uuid = UUID(uuidString: docID) else { return false }
+        let bonus: BonusCard
+        var isNew = false
+
+        if let existing = fetchBonusCard(id: docID, in: context) {
+            bonus = existing
+        } else {
+            // Stub — real values applied immediately below.
+            bonus = BonusCard(cardName: "Syncing...", bonusAmount: "")
+            bonus.id = uuid
+            context.insert(bonus)
+            isNew = true
+        }
+
+        var changed = isNew
+
+        // ── Core identity ──────────────────────────────────────────────────────
+        if let v = data["cardName"] as? String,      v != bonus.cardName      { bonus.cardName = v;      changed = true }
+        if let v = data["bonusAmount"] as? String,   v != bonus.bonusAmount   { bonus.bonusAmount = v;   changed = true }
+
+        // Firestore stores Date as a Timestamp object; convert before comparing.
+        if let ts = data["dateOpened"] as? Timestamp {
+            let d = ts.dateValue()
+            if d != bonus.dateOpened { bonus.dateOpened = d; changed = true }
+        }
+
+        // ── QoL fields ─────────────────────────────────────────────────────────
+        if let v = data["accountHolderName"] as? String, v != bonus.accountHolderName { bonus.accountHolderName = v; changed = true }
+        if let v = data["miscNotes"] as? String,          v != bonus.miscNotes          { bonus.miscNotes = v;          changed = true }
+
+        // ── Minimum spend requirement ──────────────────────────────────────────
+        if let v = data["requiresPurchases"] as? Bool,          v != bonus.requiresPurchases          { bonus.requiresPurchases = v;          changed = true }
+        if let v = data["purchaseTarget"] as? Double,           v != bonus.purchaseTarget             { bonus.purchaseTarget = v;             changed = true }
+        if let v = data["currentPurchaseAmount"] as? Double,    v != bonus.currentPurchaseAmount      { bonus.currentPurchaseAmount = v;      changed = true }
+
+        // ── Direct deposit requirement ─────────────────────────────────────────
+        if let v = data["requiresDirectDeposit"] as? Bool,       v != bonus.requiresDirectDeposit       { bonus.requiresDirectDeposit = v;       changed = true }
+        if let v = data["directDepositTarget"] as? Double,        v != bonus.directDepositTarget         { bonus.directDepositTarget = v;         changed = true }
+        if let v = data["currentDirectDepositAmount"] as? Double, v != bonus.currentDirectDepositAmount  { bonus.currentDirectDepositAmount = v;  changed = true }
+
+        // ── Other requirement ──────────────────────────────────────────────────
+        if let v = data["requiresOther"] as? Bool,      v != bonus.requiresOther      { bonus.requiresOther = v;      changed = true }
+        if let v = data["otherDescription"] as? String, v != bonus.otherDescription   { bonus.otherDescription = v;   changed = true }
+        if let v = data["isOtherCompleted"] as? Bool,   v != bonus.isOtherCompleted   { bonus.isOtherCompleted = v;   changed = true }
+
+        // ── Completion flag ────────────────────────────────────────────────────
+        if let v = data["isCompleted"] as? Bool, v != bonus.isCompleted { bonus.isCompleted = v; changed = true }
+
+        return changed
     }
 }

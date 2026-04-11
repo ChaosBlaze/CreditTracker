@@ -4,11 +4,20 @@ import SwiftData
 struct BonusView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \BonusCard.dateOpened, order: .reverse) private var bonuses: [BonusCard]
+
     @State private var showAddBonus = false
     @State private var addBonusHapticTrigger = false
 
-    private var active: [BonusCard] { bonuses.filter { !$0.isCompleted } }
-    private var completed: [BonusCard] { bonuses.filter { $0.isCompleted } }
+    // ── Completed row interaction ──────────────────────────────────────────────
+    /// The completed bonus whose EditBonusView sheet is currently open.
+    @State private var selectedCompletedBonus: BonusCard? = nil
+    /// Drives .selection haptic on a single tap.
+    @State private var completedTapTrigger = false
+    /// Drives .impact haptic on long-press.
+    @State private var completedLongPressTrigger = false
+
+    private var active:    [BonusCard] { bonuses.filter { !$0.isCompleted } }
+    private var completed: [BonusCard] { bonuses.filter {  $0.isCompleted } }
 
     var body: some View {
         NavigationStack {
@@ -30,10 +39,12 @@ struct BonusView: View {
                                     BonusCardRowView(bonus: bonus)
                                 }
                             }
+
                             if !completed.isEmpty {
                                 sectionHeader("Completed", systemImage: "checkmark.seal.fill")
                                     .padding(.horizontal, 4)
                                     .padding(.top, active.isEmpty ? 4 : 8)
+
                                 ForEach(completed) { bonus in
                                     completedBonusRow(bonus)
                                 }
@@ -57,10 +68,18 @@ struct BonusView: View {
                     .glassEffect(in: Circle())
                 }
             }
-            .sensoryFeedback(.impact(weight: .light), trigger: addBonusHapticTrigger)
+            .sensoryFeedback(.impact(weight: .light),  trigger: addBonusHapticTrigger)
+            // Haptics for completed-row interactions.
+            .sensoryFeedback(.selection,               trigger: completedTapTrigger)
+            .sensoryFeedback(.impact(weight: .medium), trigger: completedLongPressTrigger)
         }
         .sheet(isPresented: $showAddBonus) {
             AddBonusView()
+        }
+        // Single sheet binding driven by selectedCompletedBonus.
+        // BonusCard is Identifiable via its UUID, so SwiftUI manages identity correctly.
+        .sheet(item: $selectedCompletedBonus) { bonus in
+            EditBonusView(bonus: bonus)
         }
     }
 
@@ -109,6 +128,15 @@ struct BonusView: View {
         .padding(.top, 4)
     }
 
+    // MARK: - Completed Row
+    //
+    // Completed rows are visually muted (reduced opacity) but fully interactive:
+    //   • Tap     → .selection haptic + open EditBonusView sheet.
+    //   • Long press → .impact haptic  + open EditBonusView sheet.
+    //
+    // This lets users read miscNotes, review requirements, or un-complete a bonus
+    // by toggling the "Bonus Earned" toggle inside EditBonusView.
+
     @ViewBuilder
     private func completedBonusRow(_ bonus: BonusCard) -> some View {
         HStack(spacing: 12) {
@@ -120,6 +148,18 @@ struct BonusView: View {
                 Text(bonus.cardName)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
+
+                // Show account holder name when set — consistent with the active row.
+                if !bonus.accountHolderName.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.fill")
+                            .font(.caption2)
+                        Text(bonus.accountHolderName)
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+
                 Text(bonus.bonusAmount)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -127,16 +167,33 @@ struct BonusView: View {
 
             Spacer()
 
-            Text("Earned")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.green, in: Capsule())
+            VStack(alignment: .trailing, spacing: 4) {
+                Text("Earned")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.green, in: Capsule())
+
+                // Hint icon: signals the row is tappable without cluttering the layout.
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .padding(14)
         .glassEffect(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .opacity(0.75)
+        .opacity(0.80)
+        // contentShape ensures the tap target covers the full card, not just the text.
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture {
+            completedTapTrigger.toggle()
+            selectedCompletedBonus = bonus
+        }
+        .onLongPressGesture {
+            completedLongPressTrigger.toggle()
+            selectedCompletedBonus = bonus
+        }
     }
 }
 

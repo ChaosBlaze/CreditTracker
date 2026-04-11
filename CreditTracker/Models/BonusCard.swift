@@ -25,6 +25,15 @@ final class BonusCard {
 
     var isCompleted: Bool = false
 
+    // MARK: - QoL Fields (Phase 1)
+
+    /// Who opened this card — useful in family/partner setups (e.g. "Shekar", "Wife").
+    /// Defaults to empty string so existing SwiftData rows migrate safely without a schema version bump.
+    var accountHolderName: String = ""
+
+    /// Free-form notepad — account numbers, referral links, reminder details, etc.
+    var miscNotes: String = ""
+
     // MARK: - Computed helpers
 
     var purchaseFraction: Double {

@@ -121,6 +121,47 @@ extension FamilySettings: FirestoreSyncable {
     }
 }
 
+// MARK: - BonusCard Conformance
+
+extension BonusCard: FirestoreSyncable {
+    var syncID: String { id.uuidString }
+
+    /// Stored in its own top-level sub-collection so it can be queried independently
+    /// of the card/credit/periodLog hierarchy.
+    static var firestoreCollectionName: String { "bonusCards" }
+
+    func firestorePayload() -> [String: Any] {
+        [
+            // Core identity
+            "cardName":                    cardName,
+            "bonusAmount":                 bonusAmount,
+            "dateOpened":                  dateOpened,
+
+            // QoL fields (Phase 1)
+            "accountHolderName":           accountHolderName,
+            "miscNotes":                   miscNotes,
+
+            // Minimum spend requirement
+            "requiresPurchases":           requiresPurchases,
+            "purchaseTarget":              purchaseTarget,
+            "currentPurchaseAmount":       currentPurchaseAmount,
+
+            // Direct deposit requirement
+            "requiresDirectDeposit":       requiresDirectDeposit,
+            "directDepositTarget":         directDepositTarget,
+            "currentDirectDepositAmount":  currentDirectDepositAmount,
+
+            // Catch-all "other" requirement
+            "requiresOther":               requiresOther,
+            "otherDescription":            otherDescription,
+            "isOtherCompleted":            isOtherCompleted,
+
+            // Completion state — synced so marking done on one device reflects everywhere
+            "isCompleted":                 isCompleted
+        ]
+    }
+}
+
 // MARK: - Credit Conformance
 
 extension Credit: FirestoreSyncable {
