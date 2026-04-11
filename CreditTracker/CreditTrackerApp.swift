@@ -85,11 +85,10 @@ struct CreditTrackerApp: App {
 struct MainTabView: View {
     var body: some View {
         TabView {
-            Tab("Credits", systemImage: "creditcard.fill") {
+            // "Credits" tab renamed to "Cards" — payment settings now live inside
+            // each card section on this tab rather than in a separate Cards tab.
+            Tab("Cards", systemImage: "creditcard.fill") {
                 DashboardView()
-            }
-            Tab("Cards", systemImage: "creditcard") {
-                CardsView()
             }
             Tab("Bonuses", systemImage: "sparkles") {
                 BonusView()

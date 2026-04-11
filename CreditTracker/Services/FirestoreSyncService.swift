@@ -315,6 +315,25 @@ final class FirestoreSyncService {
         if let gEnd = data["gradientEndHex"] as? String, gEnd != card.gradientEndHex { card.gradientEndHex = gEnd; changed = true }
         if let order = data["sortOrder"] as? Int, order != card.sortOrder { card.sortOrder = order; changed = true }
 
+        // Payment fields — guarded individually so older Firestore docs without
+        // these keys don't overwrite freshly-set local values with defaults.
+        if let reminderEnabled = data["paymentReminderEnabled"] as? Bool,
+           reminderEnabled != card.paymentReminderEnabled {
+            card.paymentReminderEnabled = reminderEnabled
+            changed = true
+        }
+        if let reminderDays = data["paymentReminderDaysBefore"] as? Int,
+           reminderDays != card.paymentReminderDaysBefore {
+            card.paymentReminderDaysBefore = reminderDays
+            changed = true
+        }
+        // paymentDueDay is optional — its absence in Firestore means the remote
+        // device hasn't set a due date; treat that as nil rather than 0.
+        if data.keys.contains("paymentDueDay") {
+            let remoteDay = data["paymentDueDay"] as? Int  // nil when field is NSNull
+            if remoteDay != card.paymentDueDay { card.paymentDueDay = remoteDay; changed = true }
+        }
+
         return changed
     }
 

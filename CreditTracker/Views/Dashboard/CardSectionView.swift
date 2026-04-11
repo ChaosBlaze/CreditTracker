@@ -9,8 +9,10 @@ struct CardSectionView: View {
     @State private var isExpanded = true
     @State private var expandHapticTrigger = false
     @State private var openModalHapticTrigger = false
+    @State private var paymentHapticTrigger = false
     @State private var deleteWarningTrigger = false
     @State private var showDeleteConfirmation = false
+    @State private var showPaymentSettings = false
 
     private var startColor: Color { Color(hex: card.gradientStartHex) }
     private var endColor: Color { Color(hex: card.gradientEndHex) }
@@ -26,46 +28,60 @@ struct CardSectionView: View {
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
         VStack(alignment: .leading, spacing: 0) {
-            // Card header
-            Button {
+            // Card header — tapping most of the row toggles expand;
+            // the calendar button opens payment settings without collapsing the section.
+            HStack(spacing: 12) {
+                // Card accent strip
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(
+                        LinearGradient(
+                            colors: [startColor, endColor],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 4, height: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(card.name)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text("$\(Int(card.annualFee))/yr · \(card.credits.count) credit\(card.credits.count == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                // Payment settings button — tinted when a due day is configured.
+                Button {
+                    paymentHapticTrigger.toggle()
+                    showPaymentSettings = true
+                } label: {
+                    Image(systemName: "calendar.badge.exclamationmark")
+                        .font(.subheadline)
+                        .foregroundStyle(card.paymentDueDay != nil ? startColor : .secondary)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .sensoryFeedback(.impact(weight: .light), trigger: paymentHapticTrigger)
+
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                    .animation(.spring(response: 0.3), value: isExpanded)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            // Make the full row (excluding the payment Button) tappable for expand/collapse.
+            .contentShape(Rectangle())
+            .onTapGesture {
                 expandHapticTrigger.toggle()
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                     isExpanded.toggle()
                 }
-            } label: {
-                HStack(spacing: 12) {
-                    // Card accent strip
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(
-                            LinearGradient(
-                                colors: [startColor, endColor],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .frame(width: 4, height: 32)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(card.name)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                        Text("$\(Int(card.annualFee))/yr · \(card.credits.count) credit\(card.credits.count == 1 ? "" : "s")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
-                        .animation(.spring(response: 0.3), value: isExpanded)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
             }
-            .buttonStyle(.plain)
             .sensoryFeedback(.selection, trigger: expandHapticTrigger)
             .contextMenu {
                 Button {
@@ -140,6 +156,9 @@ struct CardSectionView: View {
         }
         .sheet(isPresented: $showEditCard) {
             EditCardView(card: card)
+        }
+        .sheet(isPresented: $showPaymentSettings) {
+            CardPaymentSettingsView(card: card)
         }
     }
 }

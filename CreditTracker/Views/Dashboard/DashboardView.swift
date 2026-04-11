@@ -27,7 +27,7 @@ struct DashboardView: View {
                     }
                 }
             }
-            .navigationTitle("Credits")
+            .navigationTitle("Cards")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {

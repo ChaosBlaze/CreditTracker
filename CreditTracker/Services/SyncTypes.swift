@@ -80,13 +80,22 @@ extension Card: FirestoreSyncable {
     static var firestoreCollectionName: String { "cards" }
 
     func firestorePayload() -> [String: Any] {
-        [
+        var payload: [String: Any] = [
             "name": name,
             "annualFee": annualFee,
             "gradientStartHex": gradientStartHex,
             "gradientEndHex": gradientEndHex,
-            "sortOrder": sortOrder
+            "sortOrder": sortOrder,
+            // Payment reminder fields — always included so other devices can read them.
+            "paymentReminderEnabled": paymentReminderEnabled,
+            "paymentReminderDaysBefore": paymentReminderDaysBefore
         ]
+        // paymentDueDay is optional — only write it when set to keep the
+        // Firestore document clean for cards that haven't configured a due date yet.
+        if let dueDay = paymentDueDay {
+            payload["paymentDueDay"] = dueDay
+        }
+        return payload
     }
 }
 
