@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9D216D502F89F3B100BAF1CE /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 9D216D4F2F89F3B100BAF1CE /* FirebaseMessaging */; };
 		9D5AFB8C2F876B3F00D6CF8C /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9D5AFB8B2F876B3F00D6CF8C /* FirebaseCore */; };
 		9D5AFB8E2F876B7300D6CF8C /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 9D5AFB8D2F876B7300D6CF8C /* FirebaseFirestore */; };
 		AB12CD112F6E468100133B05 /* CreditTrackerWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AB12CD012F6E468100133B05 /* CreditTrackerWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -40,6 +41,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9D216D522F89F4C500BAF1CE /* Exceptions for "CreditTracker" folder in "CreditTracker" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9D68FF772F6E468100133B05 /* CreditTracker */;
+		};
 		AB12CD142F6E468100133B05 /* Exceptions for "CreditTracker" folder in "CreditTrackerWidget" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -60,6 +68,7 @@
 		9D68FF7A2F6E468100133B05 /* CreditTracker */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				9D216D522F89F4C500BAF1CE /* Exceptions for "CreditTracker" folder in "CreditTracker" target */,
 				AB12CD142F6E468100133B05 /* Exceptions for "CreditTracker" folder in "CreditTrackerWidget" target */,
 			);
 			path = CreditTracker;
@@ -76,6 +85,7 @@
 		9D68FF752F6E468100133B05 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				9D216D502F89F3B100BAF1CE /* FirebaseMessaging in Frameworks */,
 				9D5AFB8C2F876B3F00D6CF8C /* FirebaseCore in Frameworks */,
 				9D5AFB8E2F876B7300D6CF8C /* FirebaseFirestore in Frameworks */,
 			);
@@ -138,6 +148,7 @@
 			packageProductDependencies = (
 				9D5AFB8B2F876B3F00D6CF8C /* FirebaseCore */,
 				9D5AFB8D2F876B7300D6CF8C /* FirebaseFirestore */,
+				9D216D4F2F89F3B100BAF1CE /* FirebaseMessaging */,
 			);
 			productName = CreditTracker;
 			productReference = 9D68FF782F6E468100133B05 /* CreditTracker.app */;
@@ -366,6 +377,7 @@
 				DEVELOPMENT_TEAM = AGV3L2R2M2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CreditTracker/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -398,6 +410,7 @@
 				DEVELOPMENT_TEAM = AGV3L2R2M2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CreditTracker/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -514,6 +527,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		9D216D4F2F89F3B100BAF1CE /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9DC51F062F875843008AFD6C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
 		9D5AFB8B2F876B3F00D6CF8C /* FirebaseCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 9DC51F062F875843008AFD6C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;

@@ -20,4 +20,15 @@ enum Constants {
     /// UserDefaults key for the stable user/device ID that namespaces Firestore documents.
     /// Replace the stored value with a Firebase Auth UID to enable true multi-device sync.
     static let firestoreUserIDKey = "firestoreUserID"
+
+    // MARK: - FCM / Silent Push
+    /// UserDefaults key for this device's current FCM registration token.
+    /// Written by AppDelegate.MessagingDelegate; read by SettingsView to stamp
+    /// `lastModifiedByToken` so receiving devices know who made a change.
+    static let fcmTokenKey = "fcmDeviceToken"
+
+    // MARK: - FamilySettings
+    /// Fixed Firestore document ID for the FamilySettings singleton.
+    /// All devices in a family read/write this single document, ensuring convergence.
+    static let familySettingsSyncID = "family-discord-settings"
 }

@@ -4,17 +4,26 @@ import UserNotifications
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
-    @AppStorage(Constants.hasSeededDataKey) private var hasSeededData = false
-    @AppStorage(Constants.defaultReminderDaysKey) private var defaultReminderDays = Constants.defaultReminderDays
-    @AppStorage(Constants.discordReminderEnabledKey) private var discordReminderEnabled = false
-    @AppStorage(Constants.discordReminderHourKey) private var discordReminderHour = Constants.discordReminderDefaultHour
-    @AppStorage(Constants.discordReminderMinuteKey) private var discordReminderMinute = Constants.discordReminderDefaultMinute
+    @AppStorage(Constants.hasSeededDataKey)        private var hasSeededData      = false
+    @AppStorage(Constants.defaultReminderDaysKey)  private var defaultReminderDays = Constants.defaultReminderDays
+
+    // FamilySettings singleton — queried as an array, accessed via .first.
+    // The .task modifier ensures the singleton is created before user interaction.
+    @Query private var settingsArray: [FamilySettings]
 
     @State private var notificationManager = NotificationManager.shared
-    @State private var syncService = FirestoreSyncService.shared
+    @State private var syncService         = FirestoreSyncService.shared
     @State private var showResetConfirmation = false
-    @State private var showResetDone = false
-    @State private var showJoinFamilySheet = false
+    @State private var showResetDone         = false
+    @State private var showJoinFamilySheet   = false
+
+    // MARK: - FamilySettings Accessor
+
+    /// Returns the live FamilySettings singleton, or nil while the DB is loading.
+    /// `ensureFamilySettingsSingleton()` in `.task {}` guarantees it exists quickly.
+    private var familySettings: FamilySettings? { settingsArray.first }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -32,11 +41,10 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .task {
                 await notificationManager.checkStatus()
+                ensureFamilySettingsSingleton()
             }
             .alert("Reset All Data?", isPresented: $showResetConfirmation) {
-                Button("Reset", role: .destructive) {
-                    resetData()
-                }
+                Button("Reset", role: .destructive) { resetData() }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This will delete all cards and credits, then re-seed the default data. This cannot be undone.")
@@ -75,38 +83,13 @@ struct SettingsView: View {
                 }
             } else if notificationManager.authorizationStatus == .notDetermined {
                 Button {
-                    Task {
-                        await notificationManager.requestPermission()
-                    }
+                    Task { await notificationManager.requestPermission() }
                 } label: {
                     Label("Request Permission", systemImage: "bell.badge")
                         .foregroundStyle(.blue)
                 }
             }
         }
-    }
-
-    /// A `Date` binding that maps to/from the stored hour and minute integers.
-    /// Only the time components matter; the date portion is today and is ignored.
-    private var discordReminderTimeBinding: Binding<Date> {
-        Binding(
-            get: {
-                var comps = DateComponents()
-                comps.hour = discordReminderHour
-                comps.minute = discordReminderMinute
-                return Calendar.current.date(from: comps) ?? Date()
-            },
-            set: { newDate in
-                let comps = Calendar.current.dateComponents([.hour, .minute], from: newDate)
-                discordReminderHour = comps.hour ?? Constants.discordReminderDefaultHour
-                discordReminderMinute = comps.minute ?? Constants.discordReminderDefaultMinute
-                // Reschedule with the new time if the reminder is currently active
-                if discordReminderEnabled {
-                    notificationManager.cancelDiscordReminder()
-                    notificationManager.scheduleDiscordReminder()
-                }
-            }
-        )
     }
 
     private var defaultsSection: some View {
@@ -116,15 +99,12 @@ struct SettingsView: View {
                 value: $defaultReminderDays,
                 in: Constants.minReminderDays...Constants.maxReminderDays
             )
-            Toggle("Discord Redeem Reminder", isOn: $discordReminderEnabled)
-                .onChange(of: discordReminderEnabled) { _, newValue in
-                    if newValue {
-                        notificationManager.scheduleDiscordReminder()
-                    } else {
-                        notificationManager.cancelDiscordReminder()
-                    }
-                }
-            if discordReminderEnabled {
+
+            // Discord reminder toggle — reads/writes FamilySettings and syncs to Firestore.
+            Toggle("Discord Redeem Reminder", isOn: discordEnabledBinding)
+
+            // Time picker — only shown when the reminder is active.
+            if familySettings?.discordReminderEnabled == true {
                 DatePicker(
                     "Reminder Time",
                     selection: discordReminderTimeBinding,
@@ -191,14 +171,14 @@ struct SettingsView: View {
                 Text("Your Shared Family ID")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                
+
                 HStack {
                     Text(syncService.userID)
                         .font(.system(.body, design: .monospaced))
                         .textSelection(.enabled)
-                    
+
                     Spacer()
-                    
+
                     Button {
                         UIPasteboard.general.string = syncService.userID
                         let generator = UINotificationFeedbackGenerator()
@@ -209,7 +189,7 @@ struct SettingsView: View {
                     .buttonStyle(.borderless)
                 }
             }
-            
+
             Button("Join Existing Family") {
                 showJoinFamilySheet = true
             }
@@ -232,10 +212,10 @@ struct SettingsView: View {
 
     private var aboutSection: some View {
         Section("About") {
-            LabeledContent("App", value: "CreditTracker")
-            LabeledContent("Version", value: "4.0")
+            LabeledContent("App",        value: "CreditTracker")
+            LabeledContent("Version",    value: "4.0")
             LabeledContent("iOS Target", value: "26.0+")
-            LabeledContent("Bundle ID", value: Constants.bundleID)
+            LabeledContent("Bundle ID",  value: Constants.bundleID)
                 .font(.caption)
         }
     }
@@ -245,20 +225,19 @@ struct SettingsView: View {
             Button("Force Upload All Data") {
                 Task { @MainActor in
                     let cards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
-                    for card in cards {
-                        await syncService.upload(card)
-                    }
-                    
+                    for card in cards { await syncService.upload(card) }
+
                     let credits = (try? context.fetch(FetchDescriptor<Credit>())) ?? []
-                    for credit in credits {
-                        await syncService.upload(credit)
-                    }
-                    
+                    for credit in credits { await syncService.upload(credit) }
+
                     let logs = (try? context.fetch(FetchDescriptor<PeriodLog>())) ?? []
-                    for log in logs {
-                        await syncService.upload(log)
+                    for log in logs { await syncService.upload(log) }
+
+                    // Also upload FamilySettings so the cloud is current.
+                    if let settings = familySettings {
+                        await syncService.upload(settings)
                     }
-                    
+
                     print("Finished uploading \(cards.count) cards, \(credits.count) credits, and \(logs.count) logs.")
                 }
             }
@@ -268,11 +247,9 @@ struct SettingsView: View {
     private var developerSignatureSection: some View {
         Section {
             TimelineView(.animation) { timeline in
-                // Slowly cycle the gradient phase — one full cycle every ~12 seconds.
                 let phase = timeline.date.timeIntervalSinceReferenceDate * (1.0 / 12.0)
                 let t = phase.truncatingRemainder(dividingBy: 1.0)
 
-                // Apple Intelligence palette: purple → pink → blue → orange
                 let stops: [Gradient.Stop] = [
                     .init(color: appleIntelligenceColor(base: 0.75, offset: t), location: 0.00),
                     .init(color: appleIntelligenceColor(base: 0.88, offset: t), location: 0.33),
@@ -296,6 +273,86 @@ struct SettingsView: View {
     private func appleIntelligenceColor(base: Double, offset: Double) -> Color {
         let hue = (base + offset).truncatingRemainder(dividingBy: 1.0)
         return Color(hue: hue, saturation: 0.68, brightness: 0.92)
+    }
+
+    // MARK: - FamilySettings Bindings
+
+    /// Toggle binding for Discord Redeem Reminder enabled state.
+    ///
+    /// On change: persists to SwiftData, mirrors to UserDefaults (for rescheduleAll
+    /// backward compat), reschedules notification, and pushes to Firestore.
+    private var discordEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { familySettings?.discordReminderEnabled ?? false },
+            set: { newValue in
+                guard let settings = familySettings else { return }
+                settings.discordReminderEnabled = newValue
+                // Stamp our FCM token so other devices know who made this change.
+                settings.lastModifiedByToken = UserDefaults.standard.string(forKey: Constants.fcmTokenKey) ?? ""
+                // Mirror to UserDefaults so rescheduleAll() stays in sync.
+                UserDefaults.standard.set(newValue, forKey: Constants.discordReminderEnabledKey)
+                try? context.save()
+                if newValue {
+                    notificationManager.scheduleDiscordReminder(
+                        hour:   settings.discordReminderHour,
+                        minute: settings.discordReminderMinute
+                    )
+                } else {
+                    notificationManager.cancelDiscordReminder()
+                }
+                Task { await FirestoreSyncService.shared.upload(settings) }
+            }
+        )
+    }
+
+    /// DatePicker binding mapping a `Date` (time only) to FamilySettings hour + minute.
+    ///
+    /// On change: persists to SwiftData, mirrors to UserDefaults, reschedules
+    /// notification, and pushes to Firestore.
+    private var discordReminderTimeBinding: Binding<Date> {
+        Binding(
+            get: {
+                let hour   = familySettings?.discordReminderHour   ?? Constants.discordReminderDefaultHour
+                let minute = familySettings?.discordReminderMinute ?? Constants.discordReminderDefaultMinute
+                var comps  = DateComponents()
+                comps.hour   = hour
+                comps.minute = minute
+                return Calendar.current.date(from: comps) ?? Date()
+            },
+            set: { newDate in
+                guard let settings = familySettings else { return }
+                let comps     = Calendar.current.dateComponents([.hour, .minute], from: newDate)
+                let newHour   = comps.hour   ?? Constants.discordReminderDefaultHour
+                let newMinute = comps.minute ?? Constants.discordReminderDefaultMinute
+
+                settings.discordReminderHour     = newHour
+                settings.discordReminderMinute   = newMinute
+                // Stamp FCM token so other devices can identify the change author.
+                settings.lastModifiedByToken = UserDefaults.standard.string(forKey: Constants.fcmTokenKey) ?? ""
+                // Mirror to UserDefaults for rescheduleAll() backward compat.
+                UserDefaults.standard.set(newHour,   forKey: Constants.discordReminderHourKey)
+                UserDefaults.standard.set(newMinute, forKey: Constants.discordReminderMinuteKey)
+                try? context.save()
+                if settings.discordReminderEnabled {
+                    notificationManager.cancelDiscordReminder()
+                    notificationManager.scheduleDiscordReminder(hour: newHour, minute: newMinute)
+                }
+                Task { await FirestoreSyncService.shared.upload(settings) }
+            }
+        )
+    }
+
+    // MARK: - FamilySettings Bootstrap
+
+    /// Creates the FamilySettings singleton on first launch, migrating values from the
+    /// legacy @AppStorage keys so existing users keep their configured reminder time.
+    private func ensureFamilySettingsSingleton() {
+        guard settingsArray.isEmpty else { return }
+        let settings = FamilySettings.migratingFromAppStorage()
+        context.insert(settings)
+        try? context.save()
+        // Upload immediately so other family devices receive the initial document.
+        Task { await FirestoreSyncService.shared.upload(settings) }
     }
 
     // MARK: - Helpers
@@ -341,32 +398,23 @@ struct SettingsView: View {
         Task { @MainActor in
             let sync = FirestoreSyncService.shared
 
-            // 1. Snapshot all document IDs before local deletion so we can remove
-            //    the corresponding Firestore documents. We do this first because
-            //    SwiftData cascade rules will invalidate Credit/PeriodLog references
-            //    the moment their parent Card is deleted.
             let logsToRemove    = (try? context.fetch(FetchDescriptor<PeriodLog>())) ?? []
             let creditsToRemove = (try? context.fetch(FetchDescriptor<Credit>())) ?? []
             let cardsToRemove   = (try? context.fetch(FetchDescriptor<Card>())) ?? []
 
-            // 2. Delete from Firestore in reverse dependency order so remote devices
-            //    don't briefly see orphaned Credits pointing at deleted Cards.
             for log    in logsToRemove    { await sync.deleteDocument(for: PeriodLog.self, id: log.syncID) }
             for credit in creditsToRemove { await sync.deleteDocument(for: Credit.self,    id: credit.syncID) }
             for card   in cardsToRemove   { await sync.deleteDocument(for: Card.self,      id: card.syncID) }
 
-            // 3. Delete from SwiftData. Card cascade handles Credits + PeriodLogs.
             for card in cardsToRemove { context.delete(card) }
             try? context.save()
 
-            // 4. Re-seed locally and push fresh data to Firestore.
             hasSeededData = false
             await SeedDataManager.seed(context: context)
             hasSeededData = true
 
-            // 5. Reschedule notifications against the new data.
-            let freshCards  = (try? context.fetch(FetchDescriptor<Card>())) ?? []
-            let allCredits  = freshCards.flatMap { $0.credits }
+            let freshCards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
+            let allCredits = freshCards.flatMap { $0.credits }
             NotificationManager.shared.rescheduleAll(credits: allCredits)
 
             showResetDone = true
@@ -374,36 +422,40 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - JoinFamilySheet
+
 struct JoinFamilySheet: View {
     @Environment(\.dismiss) private var dismiss
     var modelContext: ModelContext
-    
+
     @State private var inputID: String = ""
     @State private var errorMessage: String?
-    
+
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text("Enter Family ID"), footer: Text("Joining a family will wipe your current local cards and replace them with the shared family data. This cannot be undone.")) {
+                Section(
+                    header: Text("Enter Family ID"),
+                    footer: Text("Joining a family will wipe your current local cards and replace them with the shared family data. This cannot be undone.")
+                ) {
                     TextField("Paste Family ID Here", text: $inputID)
                         .font(.system(.body, design: .monospaced))
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                    
+
                     if let errorMessage {
                         Text(errorMessage)
                             .foregroundColor(.red)
                             .font(.caption)
                     }
                 }
-                
+
                 Button(role: .destructive) {
                     joinFamily()
                 } label: {
                     Text("Wipe Data & Join Family")
                         .frame(maxWidth: .infinity)
                 }
-                // Only enable the button if they've pasted something
                 .disabled(inputID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .navigationTitle("Join Family")
@@ -415,15 +467,13 @@ struct JoinFamilySheet: View {
             }
         }
     }
-    
+
     private func joinFamily() {
         let id = inputID.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
             try FirestoreSyncService.shared.joinFamilySync(id: id, context: modelContext)
-            
             let generator = UINotificationFeedbackGenerator()
             generator.notificationOccurred(.success)
-            
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
@@ -433,7 +483,9 @@ struct JoinFamilySheet: View {
     }
 }
 
+// MARK: - Preview
+
 #Preview {
     SettingsView()
-        .modelContainer(for: [Card.self, Credit.self, PeriodLog.self], inMemory: true)
+        .modelContainer(for: [Card.self, Credit.self, PeriodLog.self, FamilySettings.self], inMemory: true)
 }

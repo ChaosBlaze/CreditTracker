@@ -127,6 +127,11 @@ final class FirestoreSyncService {
         let bonusCards = try context.fetch(FetchDescriptor<BonusCard>())
         bonusCards.forEach { context.delete($0) }
 
+        // FamilySettings is a family-wide singleton — wipe it so the new family's
+        // Firestore document is pulled in fresh when listeners re-attach.
+        let familySettingsItems = try context.fetch(FetchDescriptor<FamilySettings>())
+        familySettingsItems.forEach { context.delete($0) }
+
         try context.save()
     }
 
@@ -151,7 +156,12 @@ final class FirestoreSyncService {
             self?.handleSnapshot(snapshot, type: .periodLog)
         }
 
-        activeListeners.append(contentsOf: [cardReg, creditReg, logReg])
+        // FamilySettings is a singleton collection — one document per family.
+        let settingsReg = collection(for: FamilySettings.self).addSnapshotListener { [weak self] snapshot, _ in
+            self?.handleSnapshot(snapshot, type: .familySettings)
+        }
+
+        activeListeners.append(contentsOf: [cardReg, creditReg, logReg, settingsReg])
     }
 
     /// Removes all Firestore listeners to avoid background network traffic.
@@ -235,7 +245,7 @@ final class FirestoreSyncService {
 
     // MARK: - Snapshot Handler (Firestore → SwiftData)
 
-    private enum SyncModelType { case card, credit, periodLog }
+    private enum SyncModelType { case card, credit, periodLog, familySettings }
 
     private func handleSnapshot(_ snapshot: QuerySnapshot?, type: SyncModelType) {
         guard let snapshot else { return }
@@ -256,6 +266,11 @@ final class FirestoreSyncService {
                         if let item = self.fetchCredit(id: docID, in: context) { context.delete(item); didApplyChanges = true }
                     case .periodLog:
                         if let item = self.fetchPeriodLog(id: docID, in: context) { context.delete(item); didApplyChanges = true }
+                    case .familySettings:
+                        // Don't delete FamilySettings locally when the Firestore document is
+                        // removed — the singleton should persist on-device even during transient
+                        // cloud inconsistencies or family-ID migrations.
+                        break
                     }
                     continue
                 }
@@ -277,6 +292,8 @@ final class FirestoreSyncService {
                     changed = self.applyCreditChange(docID: docID, data: change.document.data(), context: context)
                 case .periodLog:
                     changed = self.applyPeriodLogChange(docID: docID, data: change.document.data(), context: context)
+                case .familySettings:
+                    changed = self.applyFamilySettingsChange(docID: docID, data: change.document.data(), context: context)
                 }
 
                 if changed { didApplyChanges = true }
@@ -444,6 +461,82 @@ final class FirestoreSyncService {
                     parent.periodLogs.append(periodLog)
                 }
                 changed = true
+            }
+        }
+
+        return changed
+    }
+
+    // MARK: - FamilySettings Merge Logic
+
+    /// Merges a remote `FamilySettings` document into the local SwiftData singleton.
+    ///
+    /// - Only the canonical document (`Constants.familySettingsSyncID`) is processed.
+    /// - Creates the local singleton if it doesn't exist yet.
+    /// - When the change was authored by another device (different FCM token), reschedules
+    ///   the Discord Reminder notification and mirrors values to UserDefaults so that
+    ///   legacy `rescheduleAll()` call sites pick up the correct time automatically.
+    @discardableResult
+    private func applyFamilySettingsChange(docID: String, data: [String: Any], context: ModelContext) -> Bool {
+        // Guard: only process the well-known singleton document.
+        guard docID == Constants.familySettingsSyncID else { return false }
+
+        // Fetch or lazily create the local singleton.
+        var descriptor = FetchDescriptor<FamilySettings>()
+        descriptor.fetchLimit = 1
+
+        let settings: FamilySettings
+        var isNew = false
+
+        if let existing = try? context.fetch(descriptor).first {
+            settings = existing
+        } else {
+            settings = FamilySettings()
+            context.insert(settings)
+            isNew = true
+        }
+
+        // Apply field-level diffs (skip unchanged values to minimise dirty tracking).
+        var changed = isNew
+        if let enabled = data["discordReminderEnabled"] as? Bool,
+           enabled != settings.discordReminderEnabled {
+            settings.discordReminderEnabled = enabled; changed = true
+        }
+        if let hour = data["discordReminderHour"] as? Int,
+           hour != settings.discordReminderHour {
+            settings.discordReminderHour = hour; changed = true
+        }
+        if let minute = data["discordReminderMinute"] as? Int,
+           minute != settings.discordReminderMinute {
+            settings.discordReminderMinute = minute; changed = true
+        }
+        if let token = data["lastModifiedByToken"] as? String,
+           token != settings.lastModifiedByToken {
+            settings.lastModifiedByToken = token; changed = true
+        }
+
+        // If the document was modified by another device, update local notification
+        // scheduling and mirror to UserDefaults for backward compatibility.
+        if changed && !isNew {
+            let myToken = UserDefaults.standard.string(forKey: Constants.fcmTokenKey) ?? ""
+            if settings.lastModifiedByToken != myToken {
+                let hour    = settings.discordReminderHour
+                let minute  = settings.discordReminderMinute
+                let enabled = settings.discordReminderEnabled
+
+                // Mirror to UserDefaults so the zero-param scheduleDiscordReminder()
+                // (called by rescheduleAll) reads the correct hour/minute.
+                UserDefaults.standard.set(enabled, forKey: Constants.discordReminderEnabledKey)
+                UserDefaults.standard.set(hour,    forKey: Constants.discordReminderHourKey)
+                UserDefaults.standard.set(minute,  forKey: Constants.discordReminderMinuteKey)
+
+                // Reschedule using the explicit-param overload to avoid any race
+                // with UserDefaults propagation timing.
+                if enabled {
+                    NotificationManager.shared.scheduleDiscordReminder(hour: hour, minute: minute)
+                } else {
+                    NotificationManager.shared.cancelDiscordReminder()
+                }
             }
         }
 

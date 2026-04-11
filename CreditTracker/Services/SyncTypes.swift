@@ -99,6 +99,28 @@ extension Card: FirestoreSyncable {
     }
 }
 
+// MARK: - FamilySettings Conformance
+
+extension FamilySettings: FirestoreSyncable {
+
+    /// Fixed document ID — all family devices share this single Firestore document.
+    /// Using a constant rather than the model's UUID guarantees convergence: every
+    /// device upserts the same path, so there's never more than one cloud document.
+    var syncID: String { Constants.familySettingsSyncID }
+
+    static var firestoreCollectionName: String { "familySettings" }
+
+    func firestorePayload() -> [String: Any] {
+        [
+            "discordReminderEnabled":  discordReminderEnabled,
+            "discordReminderHour":     discordReminderHour,
+            "discordReminderMinute":   discordReminderMinute,
+            // Stamped by the writing device so receivers know whether to alert the user.
+            "lastModifiedByToken":     lastModifiedByToken
+        ]
+    }
+}
+
 // MARK: - Credit Conformance
 
 extension Credit: FirestoreSyncable {

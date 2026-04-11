@@ -107,6 +107,34 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
 
     // MARK: - Discord daily reminder
 
+    /// Schedules the daily Discord Redeem reminder using explicit `hour`/`minute` values.
+    ///
+    /// Prefer this overload when the source of truth is `FamilySettings` (via the
+    /// Firestore sync path or the background push handler) to avoid any race between
+    /// SwiftData model changes and UserDefaults propagation.
+    func scheduleDiscordReminder(hour: Int, minute: Int) {
+        let content = UNMutableNotificationContent()
+        content.title = "Discord Reminder"
+        content.body  = "Redeem Giftcard"
+        content.sound = .default
+
+        let trigger = UNCalendarNotificationTrigger(
+            dateMatching: DateComponents(hour: hour, minute: minute),
+            repeats: true
+        )
+        let request = UNNotificationRequest(
+            identifier: Constants.discordReminderNotificationID,
+            content: content,
+            trigger: trigger
+        )
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error { print("Failed to schedule discord reminder: \(error)") }
+        }
+    }
+
+    /// Zero-argument variant — reads hour/minute from UserDefaults (legacy path).
+    /// Kept for `rescheduleAll()` backward compatibility. Prefer the explicit overload
+    /// when scheduling from `FamilySettings`.
     func scheduleDiscordReminder() {
         let content = UNMutableNotificationContent()
         content.title = "Discord Reminder"
