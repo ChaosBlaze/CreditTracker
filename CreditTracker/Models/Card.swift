@@ -13,6 +13,14 @@ final class Card {
     var paymentReminderDaysBefore: Int = 3
     var paymentReminderEnabled: Bool = true
 
+    /// The date the annual fee renews. Used to fire a 30-day advance notification.
+    /// Nil until the user sets it in CardPaymentSettingsView.
+    var annualFeeDate: Date? = nil
+
+    /// When true, a `UNCalendarNotificationTrigger` fires 30 days before `annualFeeDate`.
+    /// Stored as a SwiftData field so Firestore sync propagates the preference to other devices.
+    var annualFeeReminderEnabled: Bool = false
+
     @Relationship(deleteRule: .cascade, inverse: \Credit.card)
     var credits: [Credit] = []
 

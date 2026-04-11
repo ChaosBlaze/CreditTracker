@@ -90,8 +90,21 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
 
     // MARK: - Reschedule all reminders
 
-    func rescheduleAll(credits: [Credit]) {
+    /// Reschedules all local notifications from scratch.
+    ///
+    /// `removeAllPendingNotificationRequests()` wipes every pending notification,
+    /// so this method must restore ALL notification categories — credit reminders,
+    /// payment reminders, annual-fee reminders, and the discord reminder.
+    ///
+    /// - Parameters:
+    ///   - credits: All active credits whose period reminders should fire.
+    ///   - cards: All cards — used to restore payment and annual-fee reminders.
+    ///            Defaults to `[]` for backward-compatibility with existing call sites
+    ///            that only pass credits.
+    func rescheduleAll(credits: [Credit], cards: [Card] = []) {
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+
+        // Credit period reminders
         for credit in credits {
             if let activePeriod = PeriodEngine.activePeriodLog(for: credit) {
                 if activePeriod.periodStatus == .pending || activePeriod.periodStatus == .partiallyClaimed {
@@ -99,6 +112,13 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
                 }
             }
         }
+
+        // Per-card reminders (payment due + annual fee)
+        for card in cards {
+            schedulePaymentReminder(for: card)
+            scheduleAnnualFeeReminder(for: card)
+        }
+
         // Restore the discord reminder if it was enabled — removeAll wipes it too
         if UserDefaults.standard.bool(forKey: Constants.discordReminderEnabledKey) {
             scheduleDiscordReminder()
@@ -206,6 +226,47 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         for card in cards {
             schedulePaymentReminder(for: card)
         }
+    }
+
+    // MARK: - Annual Fee reminders
+
+    /// Schedules a one-time local notification 30 days before `card.annualFeeDate`.
+    ///
+    /// The notification prompts the user to decide whether to keep, downgrade, or
+    /// close the card before the fee posts. Fires at 9 AM on the trigger day.
+    /// No-ops when `annualFeeReminderEnabled` is false or `annualFeeDate` is nil.
+    func scheduleAnnualFeeReminder(for card: Card) {
+        guard card.annualFeeReminderEnabled, let feeDate = card.annualFeeDate else { return }
+
+        // Compute the reminder date: 30 days before the annual fee posts.
+        guard let reminderDate = Calendar.current.date(byAdding: .day, value: -30, to: feeDate),
+              reminderDate > Date() else { return }
+
+        let cardName = card.name
+        let fee      = Int(card.annualFee)
+        let identifier = Constants.annualFeeReminderPrefix + card.id.uuidString
+
+        let content       = UNMutableNotificationContent()
+        content.title     = "Annual Fee in 30 Days"
+        content.body      = "Your \(cardName) annual fee of $\(fee) posts in 30 days. Now's the time to decide — keep, downgrade, or cancel?"
+        content.sound     = .default
+
+        // Fire at 9 AM on the reminder day.
+        var components = Calendar.current.dateComponents([.year, .month, .day], from: reminderDate)
+        components.hour   = 9
+        components.minute = 0
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error { print("Failed to schedule annual fee reminder for \(cardName): \(error)") }
+        }
+    }
+
+    /// Cancels any pending annual-fee reminder for the given card.
+    func cancelAnnualFeeReminder(for card: Card) {
+        let identifier = Constants.annualFeeReminderPrefix + card.id.uuidString
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
     }
 
     // MARK: - Test notification

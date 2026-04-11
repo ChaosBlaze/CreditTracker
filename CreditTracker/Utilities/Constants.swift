@@ -31,4 +31,9 @@ enum Constants {
     /// Fixed Firestore document ID for the FamilySettings singleton.
     /// All devices in a family read/write this single document, ensuring convergence.
     static let familySettingsSyncID = "family-discord-settings"
+
+    // MARK: - Annual Fee Reminder
+    /// Notification identifier prefix for annual-fee reminders.
+    /// Full identifier: "annualFee_<card.id.uuidString>"
+    static let annualFeeReminderPrefix = "annualFee_"
 }

@@ -55,10 +55,15 @@ struct EditCreditView: View {
 
                 Section {
                     Button(role: .destructive) {
-                        NotificationManager.shared.cancelReminder(for: credit)
-                        context.delete(credit)
-                        try? context.save()
-                        dismiss()
+                        // Mirror the same Firestore-first deletion used in CreditRowView
+                        // to prevent the snapshot listener re-creating the credit.
+                        Task { @MainActor in
+                            NotificationManager.shared.cancelReminder(for: credit)
+                            await FirestoreSyncService.shared.deleteCreditCascading(credit)
+                            context.delete(credit)
+                            try? context.save()
+                            dismiss()
+                        }
                     } label: {
                         HStack {
                             Spacer()
@@ -87,13 +92,13 @@ struct EditCreditView: View {
     }
 
     private func saveChanges() {
-        credit.name = name.trimmingCharacters(in: .whitespaces)
-        credit.totalValue = Double(totalValue) ?? 0
-        credit.timeframe = timeframe.rawValue
-        credit.reminderDaysBefore = reminderDays
+        credit.name                 = name.trimmingCharacters(in: .whitespaces)
+        credit.totalValue           = Double(totalValue) ?? 0
+        credit.timeframe            = timeframe.rawValue
+        credit.reminderDaysBefore   = reminderDays
         credit.customReminderEnabled = reminderEnabled
 
-        // Reschedule notification
+        // Reschedule local notification with updated settings.
         NotificationManager.shared.cancelReminder(for: credit)
         if reminderEnabled, let activePeriod = PeriodEngine.activePeriodLog(for: credit) {
             if activePeriod.periodStatus == .pending || activePeriod.periodStatus == .partiallyClaimed {
@@ -102,6 +107,10 @@ struct EditCreditView: View {
         }
 
         try? context.save()
+
+        // Push updated fields to Firestore so all family devices stay in sync.
+        Task { await FirestoreSyncService.shared.upload(credit) }
+
         dismiss()
     }
 }

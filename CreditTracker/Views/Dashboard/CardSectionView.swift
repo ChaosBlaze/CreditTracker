@@ -108,8 +108,16 @@ struct CardSectionView: View {
             .sensoryFeedback(.warning, trigger: deleteWarningTrigger)
             .confirmationDialog("Delete \(card.name)?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
                 Button("Delete Card", role: .destructive) {
-                    context.delete(card)
-                    try? context.save()
+                    Task { @MainActor in
+                        // Delete from Firestore FIRST (period logs → credits → card).
+                        // If we delete locally first, the snapshot listener re-delivers
+                        // the Firestore documents on the next scene-active transition
+                        // and re-creates the card in SwiftData — the repopulation bug.
+                        await FirestoreSyncService.shared.deleteCardCascading(card)
+                        // Now remove locally — SwiftData cascade deletes credits + period logs.
+                        context.delete(card)
+                        try? context.save()
+                    }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {

@@ -233,8 +233,22 @@ final class FirestoreSyncService {
         }
     }
 
-    /// Safely deletes a Card and explicitly deletes all of its nested Credits and 
-    /// PeriodLogs from Firestore. 
+    /// Safely deletes a Credit and all of its PeriodLogs from Firestore.
+    ///
+    /// Call this *before* `context.delete(credit)` so the relationship is still intact.
+    /// Without this, the snapshot listener sees the credit document still exists in
+    /// Firestore on the next active-scene resume and re-creates it in SwiftData.
+    func deleteCreditCascading(_ credit: Credit) async {
+        let creditID = credit.syncID
+        let logIDs   = credit.periodLogs.map { $0.syncID }
+
+        // Delete children first to maintain Firestore referential integrity.
+        for id in logIDs { await deleteDocument(for: PeriodLog.self, id: id) }
+        await deleteDocument(for: Credit.self, id: creditID)
+    }
+
+    /// Safely deletes a Card and explicitly deletes all of its nested Credits and
+    /// PeriodLogs from Firestore.
     ///
     /// Call this *before* `context.delete(card)` so the relationships are still intact.
     func deleteCardCascading(_ card: Card) async {
@@ -359,6 +373,24 @@ final class FirestoreSyncService {
         if data.keys.contains("paymentDueDay") {
             let remoteDay = data["paymentDueDay"] as? Int  // nil when field is NSNull
             if remoteDay != card.paymentDueDay { card.paymentDueDay = remoteDay; changed = true }
+        }
+
+        // ── Annual fee reminder ────────────────────────────────────────────────
+        if let reminderEnabled = data["annualFeeReminderEnabled"] as? Bool,
+           reminderEnabled != card.annualFeeReminderEnabled {
+            card.annualFeeReminderEnabled = reminderEnabled
+            changed = true
+        }
+        // annualFeeDate is optional — presence in Firestore means it was set;
+        // absence means the user cleared it on another device.
+        if data.keys.contains("annualFeeDate") {
+            if let ts = data["annualFeeDate"] as? Timestamp {
+                let date = ts.dateValue()
+                if date != card.annualFeeDate { card.annualFeeDate = date; changed = true }
+            } else {
+                // Field present but NSNull — remote device cleared the date.
+                if card.annualFeeDate != nil { card.annualFeeDate = nil; changed = true }
+            }
         }
 
         return changed

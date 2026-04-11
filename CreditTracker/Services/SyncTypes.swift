@@ -88,12 +88,17 @@ extension Card: FirestoreSyncable {
             "sortOrder": sortOrder,
             // Payment reminder fields — always included so other devices can read them.
             "paymentReminderEnabled": paymentReminderEnabled,
-            "paymentReminderDaysBefore": paymentReminderDaysBefore
+            "paymentReminderDaysBefore": paymentReminderDaysBefore,
+            // Annual fee reminder — synced so the 30-day notification fires on all devices.
+            "annualFeeReminderEnabled": annualFeeReminderEnabled
         ]
-        // paymentDueDay is optional — only write it when set to keep the
-        // Firestore document clean for cards that haven't configured a due date yet.
+        // Optional fields: only write when set so Firestore docs stay clean for
+        // cards that haven't configured these values yet.
         if let dueDay = paymentDueDay {
             payload["paymentDueDay"] = dueDay
+        }
+        if let feeDate = annualFeeDate {
+            payload["annualFeeDate"] = feeDate
         }
         return payload
     }
