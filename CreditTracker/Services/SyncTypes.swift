@@ -106,7 +106,7 @@ extension FamilySettings: FirestoreSyncable {
     /// Fixed document ID — all family devices share this single Firestore document.
     /// Using a constant rather than the model's UUID guarantees convergence: every
     /// device upserts the same path, so there's never more than one cloud document.
-    var syncID: String { Constants.familySettingsSyncID }
+    var syncID: String { "family-discord-settings" }
 
     static var firestoreCollectionName: String { "familySettings" }
 
