@@ -181,12 +181,38 @@ extension Credit: FirestoreSyncable {
             "reminderDaysBefore": reminderDaysBefore,
             "customReminderEnabled": customReminderEnabled
         ]
-        
+
         // Foreign Key to link back to parent Card
         if let cardID = card?.id.uuidString {
             payload["cardID"] = cardID
         }
-        
+
+        return payload
+    }
+}
+
+// MARK: - LoyaltyProgram Conformance
+
+extension LoyaltyProgram: FirestoreSyncable {
+    var syncID: String { id.uuidString }
+
+    /// Independent top-level sub-collection — not nested under cards or credits.
+    static var firestoreCollectionName: String { "loyaltyPrograms" }
+
+    func firestorePayload() -> [String: Any] {
+        var payload: [String: Any] = [
+            "programName":       programName,
+            "category":          category,
+            "ownerName":         ownerName,
+            "pointBalance":      pointBalance,
+            "lastUpdated":       lastUpdated,
+            "gradientStartHex":  gradientStartHex,
+            "gradientEndHex":    gradientEndHex,
+        ]
+        // notes is optional — only write when set so Firestore docs stay clean.
+        if let notes = notes {
+            payload["notes"] = notes
+        }
         return payload
     }
 }

@@ -49,3 +49,30 @@ enum PeriodStatus: String, CaseIterable, Codable {
         }
     }
 }
+
+// MARK: - LoyaltyCategory
+
+enum LoyaltyCategory: String, CaseIterable, Codable {
+    case bankPoints = "bankPoints"
+    case airline    = "airline"
+    case hotel      = "hotel"
+    case other      = "other"
+
+    var displayName: String {
+        switch self {
+        case .bankPoints: return "Bank Points"
+        case .airline:    return "Airline Miles"
+        case .hotel:      return "Hotel Points"
+        case .other:      return "Other"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .bankPoints: return "building.columns.fill"
+        case .airline:    return "airplane"
+        case .hotel:      return "bed.double.fill"
+        case .other:      return "star.fill"
+        }
+    }
+}

@@ -132,6 +132,11 @@ final class FirestoreSyncService {
         let familySettingsItems = try context.fetch(FetchDescriptor<FamilySettings>())
         familySettingsItems.forEach { context.delete($0) }
 
+        // LoyaltyProgram has no parent relationship so cascade cannot reach it.
+        // Must be deleted explicitly to prevent orphaned data after a family join.
+        let loyaltyPrograms = try context.fetch(FetchDescriptor<LoyaltyProgram>())
+        loyaltyPrograms.forEach { context.delete($0) }
+
         try context.save()
     }
 
@@ -167,7 +172,13 @@ final class FirestoreSyncService {
             self?.handleSnapshot(snapshot, type: .bonusCard)
         }
 
-        activeListeners.append(contentsOf: [cardReg, creditReg, logReg, settingsReg, bonusReg])
+        // LoyaltyProgram documents live in their own sub-collection and are synced
+        // independently of the card/credit hierarchy.
+        let loyaltyReg = collection(for: LoyaltyProgram.self).addSnapshotListener { [weak self] snapshot, _ in
+            self?.handleSnapshot(snapshot, type: .loyaltyProgram)
+        }
+
+        activeListeners.append(contentsOf: [cardReg, creditReg, logReg, settingsReg, bonusReg, loyaltyReg])
     }
 
     /// Removes all Firestore listeners to avoid background network traffic.
@@ -265,7 +276,7 @@ final class FirestoreSyncService {
 
     // MARK: - Snapshot Handler (Firestore → SwiftData)
 
-    private enum SyncModelType { case card, credit, periodLog, familySettings, bonusCard }
+    private enum SyncModelType { case card, credit, periodLog, familySettings, bonusCard, loyaltyProgram }
 
     private func handleSnapshot(_ snapshot: QuerySnapshot?, type: SyncModelType) {
         guard let snapshot else { return }
@@ -293,6 +304,8 @@ final class FirestoreSyncService {
                         break
                     case .bonusCard:
                         if let item = self.fetchBonusCard(id: docID, in: context) { context.delete(item); didApplyChanges = true }
+                    case .loyaltyProgram:
+                        if let item = self.fetchLoyaltyProgram(id: docID, in: context) { context.delete(item); didApplyChanges = true }
                     }
                     continue
                 }
@@ -318,6 +331,8 @@ final class FirestoreSyncService {
                     changed = self.applyFamilySettingsChange(docID: docID, data: change.document.data(), context: context)
                 case .bonusCard:
                     changed = self.applyBonusCardChange(docID: docID, data: change.document.data(), context: context)
+                case .loyaltyProgram:
+                    changed = self.applyLoyaltyProgramChange(docID: docID, data: change.document.data(), context: context)
                 }
 
                 if changed { didApplyChanges = true }
@@ -621,6 +636,13 @@ final class FirestoreSyncService {
         return try? context.fetch(descriptor).first
     }
 
+    private func fetchLoyaltyProgram(id: String, in context: ModelContext) -> LoyaltyProgram? {
+        guard let uuid = UUID(uuidString: id) else { return nil }
+        var descriptor = FetchDescriptor<LoyaltyProgram>(predicate: #Predicate { $0.id == uuid })
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
+    }
+
     // MARK: - BonusCard Merge Logic
 
     /// Merges a remote `BonusCard` Firestore document into the local SwiftData store.
@@ -678,6 +700,61 @@ final class FirestoreSyncService {
 
         // ── Completion flag ────────────────────────────────────────────────────
         if let v = data["isCompleted"] as? Bool, v != bonus.isCompleted { bonus.isCompleted = v; changed = true }
+
+        return changed
+    }
+
+    // MARK: - LoyaltyProgram Merge Logic
+
+    /// Merges a remote `LoyaltyProgram` Firestore document into the local SwiftData store.
+    ///
+    /// Creates a stub entry when the document arrives before the local row exists
+    /// (e.g. first sync on a new device). Each field is only written when it
+    /// actually differs from the local value to minimise SwiftData dirty-tracking
+    /// and unnecessary UI refreshes.
+    @discardableResult
+    private func applyLoyaltyProgramChange(docID: String, data: [String: Any], context: ModelContext) -> Bool {
+        guard let uuid = UUID(uuidString: docID) else { return false }
+        let program: LoyaltyProgram
+        var isNew = false
+
+        if let existing = fetchLoyaltyProgram(id: docID, in: context) {
+            program = existing
+        } else {
+            // Stub — real values applied immediately below.
+            program = LoyaltyProgram(
+                programName: "Syncing...",
+                category: .other,
+                ownerName: "",
+                gradientStartHex: "#000000",
+                gradientEndHex: "#333333"
+            )
+            program.id = uuid
+            context.insert(program)
+            isNew = true
+        }
+
+        var changed = isNew
+
+        // ── Core fields ────────────────────────────────────────────────────────
+        if let v = data["programName"] as? String,     v != program.programName     { program.programName = v;     changed = true }
+        if let v = data["category"] as? String,         v != program.category         { program.category = v;         changed = true }
+        if let v = data["ownerName"] as? String,         v != program.ownerName         { program.ownerName = v;         changed = true }
+        if let v = data["pointBalance"] as? Int,         v != program.pointBalance      { program.pointBalance = v;      changed = true }
+        if let v = data["gradientStartHex"] as? String, v != program.gradientStartHex  { program.gradientStartHex = v;  changed = true }
+        if let v = data["gradientEndHex"] as? String,   v != program.gradientEndHex    { program.gradientEndHex = v;    changed = true }
+
+        // Firestore stores Date as a Timestamp object; convert before comparing.
+        if let ts = data["lastUpdated"] as? Timestamp {
+            let d = ts.dateValue()
+            if d != program.lastUpdated { program.lastUpdated = d; changed = true }
+        }
+
+        // notes is optional — handle presence (set/update) and absence (clear).
+        if data.keys.contains("notes") {
+            let remoteNotes = data["notes"] as? String
+            if remoteNotes != program.notes { program.notes = remoteNotes; changed = true }
+        }
 
         return changed
     }
