@@ -137,6 +137,10 @@ final class FirestoreSyncService {
         let loyaltyPrograms = try context.fetch(FetchDescriptor<LoyaltyProgram>())
         loyaltyPrograms.forEach { context.delete($0) }
 
+        // CardApplication has no parent relationship — must be wiped explicitly.
+        let cardApplications = try context.fetch(FetchDescriptor<CardApplication>())
+        cardApplications.forEach { context.delete($0) }
+
         try context.save()
     }
 
@@ -178,7 +182,12 @@ final class FirestoreSyncService {
             self?.handleSnapshot(snapshot, type: .loyaltyProgram)
         }
 
-        activeListeners.append(contentsOf: [cardReg, creditReg, logReg, settingsReg, bonusReg, loyaltyReg])
+        // CardApplication documents power the Card Planner feature.
+        let appReg = collection(for: CardApplication.self).addSnapshotListener { [weak self] snapshot, _ in
+            self?.handleSnapshot(snapshot, type: .cardApplication)
+        }
+
+        activeListeners.append(contentsOf: [cardReg, creditReg, logReg, settingsReg, bonusReg, loyaltyReg, appReg])
     }
 
     /// Removes all Firestore listeners to avoid background network traffic.
@@ -276,7 +285,7 @@ final class FirestoreSyncService {
 
     // MARK: - Snapshot Handler (Firestore → SwiftData)
 
-    private enum SyncModelType { case card, credit, periodLog, familySettings, bonusCard, loyaltyProgram }
+    private enum SyncModelType { case card, credit, periodLog, familySettings, bonusCard, loyaltyProgram, cardApplication }
 
     private func handleSnapshot(_ snapshot: QuerySnapshot?, type: SyncModelType) {
         guard let snapshot else { return }
@@ -306,6 +315,8 @@ final class FirestoreSyncService {
                         if let item = self.fetchBonusCard(id: docID, in: context) { context.delete(item); didApplyChanges = true }
                     case .loyaltyProgram:
                         if let item = self.fetchLoyaltyProgram(id: docID, in: context) { context.delete(item); didApplyChanges = true }
+                    case .cardApplication:
+                        if let item = self.fetchCardApplication(id: docID, in: context) { context.delete(item); didApplyChanges = true }
                     }
                     continue
                 }
@@ -333,6 +344,8 @@ final class FirestoreSyncService {
                     changed = self.applyBonusCardChange(docID: docID, data: change.document.data(), context: context)
                 case .loyaltyProgram:
                     changed = self.applyLoyaltyProgramChange(docID: docID, data: change.document.data(), context: context)
+                case .cardApplication:
+                    changed = self.applyCardApplicationChange(docID: docID, data: change.document.data(), context: context)
                 }
 
                 if changed { didApplyChanges = true }
@@ -643,6 +656,13 @@ final class FirestoreSyncService {
         return try? context.fetch(descriptor).first
     }
 
+    private func fetchCardApplication(id: String, in context: ModelContext) -> CardApplication? {
+        guard let uuid = UUID(uuidString: id) else { return nil }
+        var descriptor = FetchDescriptor<CardApplication>(predicate: #Predicate { $0.id == uuid })
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
+    }
+
     // MARK: - BonusCard Merge Logic
 
     /// Merges a remote `BonusCard` Firestore document into the local SwiftData store.
@@ -700,6 +720,47 @@ final class FirestoreSyncService {
 
         // ── Completion flag ────────────────────────────────────────────────────
         if let v = data["isCompleted"] as? Bool, v != bonus.isCompleted { bonus.isCompleted = v; changed = true }
+
+        return changed
+    }
+
+    // MARK: - CardApplication Merge Logic
+
+    @discardableResult
+    private func applyCardApplicationChange(docID: String, data: [String: Any], context: ModelContext) -> Bool {
+        guard let uuid = UUID(uuidString: docID) else { return false }
+        let app: CardApplication
+        var isNew = false
+
+        if let existing = fetchCardApplication(id: docID, in: context) {
+            app = existing
+        } else {
+            app = CardApplication(cardName: "Syncing...", issuer: "")
+            app.id = uuid
+            context.insert(app)
+            isNew = true
+        }
+
+        var changed = isNew
+
+        if let v = data["cardName"] as? String,  v != app.cardName  { app.cardName = v;  changed = true }
+        if let v = data["issuer"] as? String,    v != app.issuer    { app.issuer = v;    changed = true }
+        if let v = data["cardType"] as? String,  v != app.cardType  { app.cardType = v;  changed = true }
+        if let v = data["isApproved"] as? Bool,  v != app.isApproved { app.isApproved = v; changed = true }
+        if let v = data["player"] as? String,    v != app.player    { app.player = v;    changed = true }
+        if let v = data["notes"] as? String,     v != app.notes     { app.notes = v;     changed = true }
+
+        // Numerics — Firestore may return Int or NSNumber for Double fields
+        let remoteCL = (data["creditLimit"] as? Double) ?? (data["creditLimit"] as? NSNumber)?.doubleValue
+        if let v = remoteCL, v != app.creditLimit { app.creditLimit = v; changed = true }
+
+        let remoteAF = (data["annualFee"] as? Double) ?? (data["annualFee"] as? NSNumber)?.doubleValue
+        if let v = remoteAF, v != app.annualFee { app.annualFee = v; changed = true }
+
+        if let ts = data["applicationDate"] as? Timestamp {
+            let d = ts.dateValue()
+            if d != app.applicationDate { app.applicationDate = d; changed = true }
+        }
 
         return changed
     }

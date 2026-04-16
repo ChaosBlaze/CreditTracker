@@ -20,7 +20,7 @@ struct CreditTrackerApp: App {
 
     let modelContainer: ModelContainer = {
         // Add FamilySettings to the schema alongside the existing root models.
-        let schema = Schema([Card.self, Credit.self, PeriodLog.self, BonusCard.self, FamilySettings.self, LoyaltyProgram.self])
+        let schema = Schema([Card.self, Credit.self, PeriodLog.self, BonusCard.self, FamilySettings.self, LoyaltyProgram.self, CardApplication.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false, cloudKitDatabase: .none)
         do {
             let container = try ModelContainer(for: schema, configurations: [config])

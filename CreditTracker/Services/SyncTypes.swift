@@ -191,6 +191,29 @@ extension Credit: FirestoreSyncable {
     }
 }
 
+// MARK: - CardApplication Conformance
+
+extension CardApplication: FirestoreSyncable {
+    var syncID: String { id.uuidString }
+
+    /// Independent top-level sub-collection — one document per application record.
+    static var firestoreCollectionName: String { "cardApplications" }
+
+    func firestorePayload() -> [String: Any] {
+        [
+            "cardName":        cardName,
+            "issuer":          issuer,
+            "cardType":        cardType,
+            "applicationDate": applicationDate,
+            "isApproved":      isApproved,
+            "player":          player,
+            "creditLimit":     creditLimit,
+            "annualFee":       annualFee,
+            "notes":           notes
+        ]
+    }
+}
+
 // MARK: - LoyaltyProgram Conformance
 
 extension LoyaltyProgram: FirestoreSyncable {
