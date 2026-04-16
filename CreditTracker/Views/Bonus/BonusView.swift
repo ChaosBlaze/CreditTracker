@@ -1,7 +1,13 @@
 import SwiftUI
 import SwiftData
 
-struct BonusView: View {
+// MARK: - BonusContentView
+//
+// All the Bonuses UI lives here — no NavigationStack.
+// Used by BonusView (standalone tab) AND as a NavigationLink destination
+// inside HubView, where it inherits Hub's NavigationStack.
+
+struct BonusContentView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \BonusCard.dateOpened, order: .reverse) private var bonuses: [BonusCard]
 
@@ -20,64 +26,59 @@ struct BonusView: View {
     private var completed: [BonusCard] { bonuses.filter {  $0.isCompleted } }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if bonuses.isEmpty {
-                    ScrollView {
-                        emptyState
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                    }
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 16) {
-                            if !active.isEmpty {
-                                sectionHeader("Active", systemImage: "sparkles")
-                                    .padding(.horizontal, 4)
-                                    .padding(.top, 4)
-                                ForEach(active) { bonus in
-                                    BonusCardRowView(bonus: bonus)
-                                }
-                            }
-
-                            if !completed.isEmpty {
-                                sectionHeader("Completed", systemImage: "checkmark.seal.fill")
-                                    .padding(.horizontal, 4)
-                                    .padding(.top, active.isEmpty ? 4 : 8)
-
-                                ForEach(completed) { bonus in
-                                    completedBonusRow(bonus)
-                                }
-                            }
-                        }
+        Group {
+            if bonuses.isEmpty {
+                ScrollView {
+                    emptyState
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        if !active.isEmpty {
+                            sectionHeader("Active", systemImage: "sparkles")
+                                .padding(.horizontal, 4)
+                                .padding(.top, 4)
+                            ForEach(active) { bonus in
+                                BonusCardRowView(bonus: bonus)
+                            }
+                        }
+
+                        if !completed.isEmpty {
+                            sectionHeader("Completed", systemImage: "checkmark.seal.fill")
+                                .padding(.horizontal, 4)
+                                .padding(.top, active.isEmpty ? 4 : 8)
+
+                            ForEach(completed) { bonus in
+                                completedBonusRow(bonus)
+                            }
+                        }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                 }
             }
-            .navigationTitle("Bonuses")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        addBonusHapticTrigger.toggle()
-                        showAddBonus = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .fontWeight(.semibold)
-                    }
-                    .glassEffect(in: Circle())
-                }
-            }
-            .sensoryFeedback(.impact(weight: .light),  trigger: addBonusHapticTrigger)
-            // Haptics for completed-row interactions.
-            .sensoryFeedback(.selection,               trigger: completedTapTrigger)
-            .sensoryFeedback(.impact(weight: .medium), trigger: completedLongPressTrigger)
         }
+        .navigationTitle("Bonuses")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    addBonusHapticTrigger.toggle()
+                    showAddBonus = true
+                } label: {
+                    Image(systemName: "plus")
+                        .fontWeight(.semibold)
+                }
+                .glassEffect(in: Circle())
+            }
+        }
+        .sensoryFeedback(.impact(weight: .light),  trigger: addBonusHapticTrigger)
+        .sensoryFeedback(.selection,               trigger: completedTapTrigger)
+        .sensoryFeedback(.impact(weight: .medium), trigger: completedLongPressTrigger)
         .sheet(isPresented: $showAddBonus) {
             AddBonusView()
         }
-        // Single sheet binding driven by selectedCompletedBonus.
-        // BonusCard is Identifiable via its UUID, so SwiftUI manages identity correctly.
         .sheet(item: $selectedCompletedBonus) { bonus in
             EditBonusView(bonus: bonus)
         }
@@ -193,6 +194,19 @@ struct BonusView: View {
         .onLongPressGesture {
             completedLongPressTrigger.toggle()
             selectedCompletedBonus = bonus
+        }
+    }
+}
+
+// MARK: - BonusView
+//
+// Standalone tab wrapper — wraps BonusContentView in its own NavigationStack
+// so the Bonuses tab works identically to before.
+
+struct BonusView: View {
+    var body: some View {
+        NavigationStack {
+            BonusContentView()
         }
     }
 }

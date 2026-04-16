@@ -126,11 +126,11 @@ struct MainTabView: View {
             Tab("Cards", systemImage: "creditcard.fill") {
                 DashboardView()
             }
-            Tab("Bonuses", systemImage: "sparkles") {
-                BonusView()
-            }
             Tab("Rewards", systemImage: "star.fill") {
                 RewardsDashboardView()
+            }
+            Tab("Hub", systemImage: "square.grid.2x2.fill") {
+                HubView()
             }
             Tab("History", systemImage: "clock.fill") {
                 HistoryView()
