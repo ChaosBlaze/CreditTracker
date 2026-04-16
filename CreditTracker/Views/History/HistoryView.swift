@@ -1,184 +1,242 @@
 import SwiftUI
-import SwiftData
 import Charts
 
+// MARK: - HistoryView
+
 struct HistoryView: View {
-    @Query(sort: \Card.sortOrder) private var cards: [Card]
-    @State private var expandedCards: Set<UUID> = []
-    @State private var expandHapticTrigger = false
+    @State private var viewModel = HistoryViewModel()
 
     var body: some View {
         NavigationStack {
-            List {
-                // ROI Dashboard at the top
-                if !cards.isEmpty {
-                    Section {
-                        ROIDashboardView(cards: cards)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 12, trailing: 16))
-                    }
-                }
-
-                if cards.isEmpty {
+            Group {
+                if viewModel.isLoading {
+                    loadingState
+                } else if let error = viewModel.errorMessage {
+                    errorState(error)
+                } else if viewModel.feedEntries.isEmpty {
                     emptyState
                 } else {
-                    ForEach(cards) { card in
-                        CardHistorySection(
-                            card: card,
-                            isExpanded: expandedCards.contains(card.id)
-                        ) {
-                            expandHapticTrigger.toggle()
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                if expandedCards.contains(card.id) {
-                                    expandedCards.remove(card.id)
-                                } else {
-                                    expandedCards.insert(card.id)
-                                }
-                            }
-                        }
-                    }
+                    feedContent
                 }
             }
-            .listStyle(.insetGrouped)
             .navigationTitle("History")
-            .sensoryFeedback(.selection, trigger: expandHapticTrigger)
+            .task {
+                await viewModel.load()
+            }
+            .refreshable {
+                await viewModel.reload()
+            }
         }
+    }
+
+    // MARK: - Feed Content
+
+    private var feedContent: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+
+                // Phase 2 — ROI Dashboard
+                HistoryROIDashboard(stats: viewModel.stats)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+
+                // Phase 3 — Missed value callout (conditional)
+                if viewModel.hasMissedEntries {
+                    MissedValueCallout(
+                        count:      viewModel.missedEntries.count,
+                        totalValue: viewModel.totalMissedValue
+                    )
+                    .padding(.horizontal, 16)
+                }
+
+                // Section header
+                HStack {
+                    Text("Recent Activity")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text("\(viewModel.feedEntries.count) entries")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+
+                // Phase 3 — Activity feed
+                ForEach(viewModel.feedEntries) { entry in
+                    ActivityFeedRow(entry: entry)
+                        .padding(.horizontal, 16)
+                        // Infinite scroll: fire loadMore when the last row appears.
+                        .onAppear {
+                            if entry.id == viewModel.feedEntries.last?.id {
+                                Task { await viewModel.loadMore() }
+                            }
+                        }
+                }
+
+                if viewModel.isLoadingMore {
+                    ProgressView()
+                        .padding(.vertical, 16)
+                }
+
+                Spacer(minLength: 24)
+            }
+            .padding(.bottom, 16)
+        }
+    }
+
+    // MARK: - Placeholder States
+
+    private var loadingState: some View {
+        VStack(spacing: 16) {
+            ProgressView().scaleEffect(1.2)
+            Text("Loading history…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func errorState(_ message: String) -> some View {
+        VStack(spacing: 20) {
+            Image(systemName: "exclamationmark.icloud")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                Text("Couldn't Load History")
+                    .font(.title3.weight(.semibold))
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button("Try Again") {
+                Task { await viewModel.reload() }
+            }
+            .fontWeight(.semibold)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 12)
+            .glassEffect(in: Capsule())
+        }
+        .padding(.horizontal, 40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 20) {
             Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 44))
+                .font(.system(size: 56))
                 .foregroundStyle(.secondary)
-            Text("No history yet")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+
+            VStack(spacing: 8) {
+                Text("No History Yet")
+                    .font(.title2.weight(.semibold))
+                Text("Your period logs will appear here\nas you track your credits.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
-        .frame(maxWidth: .infinity)
-        .listRowBackground(Color.clear)
-        .padding(.top, 60)
+        .padding(.top, 80)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-// MARK: - ROI Dashboard
+// MARK: - ROI Dashboard Card
 
-struct MonthlyROI: Identifiable {
-    let id = UUID()
-    let month: Date
-    let label: String
-    let value: Double
-}
-
-struct ROIDashboardView: View {
-    let cards: [Card]
+/// The "Year in Review" executive summary card.
+///
+/// Accepts a `HistoryStats` value type so that when ROI aggregation moves to
+/// Cloud Functions, only the production site in `HistoryViewModel.buildStats()`
+/// changes — this view needs zero modification.
+struct HistoryROIDashboard: View {
+    let stats: HistoryStats
 
     private var currentYear: Int {
         Calendar.current.component(.year, from: Date())
     }
 
-    private var totalFees: Double {
-        cards.reduce(0) { $0 + $1.annualFee }
-    }
-
-    private var totalExtracted: Double {
-        cards.flatMap { $0.credits }.reduce(0) { $0 + PeriodEngine.totalClaimedThisYear(for: $1) }
-    }
-
-    private var netROI: Double { totalExtracted - totalFees }
-    private var isPositive: Bool { netROI >= 0 }
-
-    private var monthlyData: [MonthlyROI] {
-        let calendar = Calendar.current
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM"
-
-        return (1...12).compactMap { month -> MonthlyROI? in
-            guard let date = calendar.date(from: DateComponents(year: currentYear, month: month)) else { return nil }
-            var total = 0.0
-            for card in cards {
-                for credit in card.credits {
-                    for log in credit.periodLogs {
-                        let logYear = calendar.component(.year, from: log.periodStart)
-                        let logMonth = calendar.component(.month, from: log.periodStart)
-                        if logYear == currentYear && logMonth == month {
-                            total += log.claimedAmount
-                        }
-                    }
-                }
-            }
-            guard total > 0 else { return nil }
-            return MonthlyROI(month: date, label: formatter.string(from: date), value: total)
-        }
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            // Header
-            HStack {
+        VStack(alignment: .leading, spacing: 22) {
+
+            // ── Header ────────────────────────────────────────────────
+            HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(currentYear) Year in Review")
                         .font(.headline)
                         .foregroundStyle(.primary)
-                    Text("Fees paid vs. value extracted")
+                    Text("Value extracted vs. annual fees")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Image(systemName: isPositive ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(isPositive ? Color.green : Color.red)
+                Image(systemName: stats.isPositive
+                      ? "arrow.up.circle.fill"
+                      : "arrow.down.circle.fill")
+                .font(.title2)
+                .foregroundStyle(stats.isPositive ? Color.green : Color.red)
+                .symbolEffect(.bounce, value: stats.isPositive)
             }
 
-            // Fee vs Value stats row
+            // ── Hero Net ROI ──────────────────────────────────────────
+            VStack(alignment: .leading, spacing: 4) {
+                Text("NET ROI")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .tracking(1.2)
+
+                HStack(alignment: .firstTextBaseline, spacing: 2) {
+                    Text(stats.netROI >= 0 ? "+" : "−")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .foregroundStyle(stats.isPositive ? Color.green : Color.red)
+
+                    Text("$\(String(format: "%.0f", abs(stats.netROI)))")
+                        .font(.system(size: 52, weight: .bold, design: .rounded))
+                        .foregroundStyle(stats.isPositive ? Color.green : Color.red)
+                        .contentTransition(.numericText())
+                }
+            }
+
+            // ── Stats Row ─────────────────────────────────────────────
             HStack(spacing: 0) {
                 roiStatBlock(
-                    title: "Annual Fees",
-                    value: "$\(String(format: "%.0f", totalFees))",
-                    color: .secondary,
-                    systemImage: "creditcard"
+                    title:  "Annual Fees",
+                    value:  "$\(String(format: "%.0f", stats.totalFees))",
+                    color:  .secondary,
+                    icon:   "creditcard"
                 )
 
                 Divider()
-                    .frame(height: 44)
+                    .frame(height: 40)
                     .padding(.horizontal, 16)
 
                 roiStatBlock(
-                    title: "Value Extracted",
-                    value: "$\(String(format: "%.0f", totalExtracted))",
-                    color: totalExtracted >= totalFees ? Color.green : Color.orange,
-                    systemImage: "dollarsign.circle"
-                )
-
-                Divider()
-                    .frame(height: 44)
-                    .padding(.horizontal, 16)
-
-                roiStatBlock(
-                    title: "Net ROI",
-                    value: (isPositive ? "+" : "") + "$\(String(format: "%.0f", netROI))",
-                    color: isPositive ? Color.green : Color.red,
-                    systemImage: isPositive ? "chart.line.uptrend.xyaxis" : "chart.line.downtrend.xyaxis"
+                    title:  "Value Extracted",
+                    value:  "$\(String(format: "%.0f", stats.totalExtracted))",
+                    color:  stats.totalExtracted >= stats.totalFees ? .green : .orange,
+                    icon:   "dollarsign.circle"
                 )
             }
 
-            // Swift Charts bar graph
-            if !monthlyData.isEmpty {
+            // ── Swift Charts Bar Graph ────────────────────────────────
+            if !stats.monthlyBreakdown.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Monthly Value")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
 
-                    Chart(monthlyData) { entry in
+                    Chart(stats.monthlyBreakdown) { point in
                         BarMark(
-                            x: .value("Month", entry.label),
-                            y: .value("Value", entry.value)
+                            x: .value("Month", point.label),
+                            y: .value("Value", point.value)
                         )
                         .foregroundStyle(
                             LinearGradient(
                                 colors: [Color.green.opacity(0.9), Color.teal.opacity(0.7)],
                                 startPoint: .bottom,
-                                endPoint: .top
+                                endPoint:   .top
                             )
                         )
                         .cornerRadius(5)
@@ -226,9 +284,9 @@ struct ROIDashboardView: View {
     }
 
     @ViewBuilder
-    private func roiStatBlock(title: String, value: String, color: Color, systemImage: String) -> some View {
+    private func roiStatBlock(title: String, value: String, color: Color, icon: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label(title, systemImage: systemImage)
+            Label(title, systemImage: icon)
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.secondary)
                 .labelStyle(.titleOnly)
@@ -240,126 +298,137 @@ struct ROIDashboardView: View {
     }
 }
 
-// MARK: - Card History Section
+// MARK: - Missed Value Callout
 
-struct CardHistorySection: View {
-    let card: Card
-    let isExpanded: Bool
-    let onTap: () -> Void
-
-    private var currentYear: Int {
-        Calendar.current.component(.year, from: Date())
-    }
-
-    private var totalClaimedThisYear: Double {
-        card.credits.reduce(0) { $0 + PeriodEngine.totalClaimedThisYear(for: $1) }
-    }
-
-    private var netROI: Double {
-        totalClaimedThisYear - card.annualFee
-    }
-
-    private var startColor: Color { Color(hex: card.gradientStartHex) }
-    private var endColor: Color { Color(hex: card.gradientEndHex) }
+/// Callout banner shown when any of the fetched logs have a `.missed` status.
+/// Draws attention to uncaptured value without being alarmist.
+struct MissedValueCallout: View {
+    let count: Int
+    let totalValue: Double
 
     var body: some View {
-        Section {
-            // Header row
-            Button(action: onTap) {
-                HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(LinearGradient(colors: [startColor, endColor], startPoint: .top, endPoint: .bottom))
-                        .frame(width: 4, height: 36)
+        ZStack {
+            // Red-orange tint bleeds through the glass surface
+            LinearGradient(
+                colors: [Color.red.opacity(0.18), Color.orange.opacity(0.10)],
+                startPoint: .topLeading,
+                endPoint:   .bottomTrailing
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(card.name)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
+            HStack(spacing: 14) {
+                // Icon badge
+                ZStack {
+                    Circle()
+                        .fill(Color.red.opacity(0.15))
+                        .frame(width: 42, height: 42)
+                    Image(systemName: "dollarsign.arrow.circlepath")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color.red)
+                }
 
-                        HStack(spacing: 8) {
-                            Text("Fee: $\(Int(card.annualFee))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("Claimed: $\(String(format: "%.0f", totalClaimedThisYear))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Money Left on the Table")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(
+                        "\(count) missed period\(count == 1 ? "" : "s") · $\(String(format: "%.0f", totalValue)) unclaimed"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
 
-                    Spacer()
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+        }
+        .glassEffect(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.red.opacity(0.25), lineWidth: 1.5)
+        }
+    }
+}
 
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(netROI >= 0 ? "+$\(String(format: "%.0f", netROI))" : "-$\(String(format: "%.0f", abs(netROI)))")
+// MARK: - Activity Feed Row
+
+/// A single row in the global chronological activity feed.
+///
+/// The card's gradient tints the glass surface from behind — the same visual
+/// language used by `CardSectionView` on the Dashboard tab.
+struct ActivityFeedRow: View {
+    let entry: HistoryFeedEntry
+
+    private var startColor: Color { Color(hex: entry.gradientStartHex) }
+    private var endColor:   Color { Color(hex: entry.gradientEndHex)   }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            // Gradient tint layer — bleeds through the glass surface
+            LinearGradient(
+                colors: [startColor.opacity(0.28), endColor.opacity(0.14)],
+                startPoint: .topLeading,
+                endPoint:   .bottomTrailing
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            HStack(spacing: 12) {
+                // Card colour accent strip
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(
+                        LinearGradient(
+                            colors: [startColor, endColor],
+                            startPoint: .top,
+                            endPoint:   .bottom
+                        )
+                    )
+                    .frame(width: 4, height: 38)
+
+                // Credit + card name
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.creditName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(entry.cardName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                // Period label + amount + status pill
+                VStack(alignment: .trailing, spacing: 5) {
+                    // Claimed amount — or em dash for zero
+                    if entry.claimedAmount > 0 {
+                        Text("$\(String(format: "%.0f", entry.claimedAmount))")
                             .font(.subheadline.weight(.bold).monospacedDigit())
-                            .foregroundStyle(netROI >= 0 ? Color.green : Color.red)
-                        Text("Net ROI \(currentYear)")
-                            .font(.caption2)
+                            .foregroundStyle(.primary)
+                    } else {
+                        Text("—")
+                            .font(.subheadline.weight(.medium).monospacedDigit())
                             .foregroundStyle(.tertiary)
                     }
 
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
-                }
-            }
-            .buttonStyle(.plain)
-
-            // Credits breakdown
-            if isExpanded {
-                ForEach(card.credits.sorted { $0.name < $1.name }) { credit in
-                    NavigationLink {
-                        CreditHistoryDetailView(credit: credit, card: card)
-                    } label: {
-                        CreditHistorySummaryRow(credit: credit, card: card)
+                    HStack(spacing: 6) {
+                        Text(entry.periodLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        StatusPill(status: entry.status)
                     }
                 }
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
         }
+        .glassEffect(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
-struct CreditHistorySummaryRow: View {
-    let credit: Credit
-    let card: Card
-
-    private var totalClaimedThisYear: Double {
-        PeriodEngine.totalClaimedThisYear(for: credit)
-    }
-
-    private var activePeriod: PeriodLog? {
-        PeriodEngine.activePeriodLog(for: credit)
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ProgressRingView(
-                fraction: activePeriod?.fillFraction ?? 0,
-                startColor: Color(hex: card.gradientStartHex),
-                endColor: Color(hex: card.gradientEndHex),
-                lineWidth: 4,
-                size: 36
-            )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(credit.name)
-                    .font(.subheadline.weight(.medium))
-                Text("$\(String(format: "%.0f", totalClaimedThisYear)) claimed this year")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            if let period = activePeriod {
-                StatusPill(status: period.periodStatus)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
+// MARK: - Preview
 
 #Preview {
     HistoryView()
-        .modelContainer(for: [Card.self, Credit.self, PeriodLog.self], inMemory: true)
 }
