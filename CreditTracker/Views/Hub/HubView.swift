@@ -5,6 +5,9 @@ import SwiftData
 /// New features are added here as additional HubFeatureTile entries.
 struct HubView: View {
     @Query private var bonuses: [BonusCard]
+    @Query private var applications: [CardApplication]
+
+    @AppStorage("plannerActivePlayer") private var activePlayer: String = "P1"
 
     private var activeBonusCount: Int {
         bonuses.filter { !$0.isCompleted }.count
@@ -16,6 +19,17 @@ struct HubView: View {
         case 1:  return "1 active bonus"
         default: return "\(activeBonusCount) active bonuses"
         }
+    }
+
+    private var plannerStat: String {
+        let count = PlannerEligibilityEngine.chase524Count(
+            player: activePlayer,
+            applications: applications
+        )
+        let eligible = count < 5
+        return eligible
+            ? "\(activePlayer) · \(count)/5 · Eligible"
+            : "\(activePlayer) · \(count)/5 · At limit"
     }
 
     private let columns = [
@@ -46,6 +60,19 @@ struct HubView: View {
                         }
                         .buttonStyle(.plain)
 
+                        // ── Card Planner — live ────────────────────────────────
+                        NavigationLink(destination: PlannerView()) {
+                            HubFeatureTile(
+                                title: "Card Planner",
+                                systemImage: "chart.line.uptrend.xyaxis",
+                                description: "Track 5/24, issuer velocity rules, and application history.",
+                                stat: applications.isEmpty ? "No applications yet" : plannerStat,
+                                accentColor: .purple,
+                                isAvailable: true
+                            )
+                        }
+                        .buttonStyle(.plain)
+
                         // ── Subscriptions — coming soon ────────────────────────
                         NavigationLink(destination: SubscriptionsPlaceholderView()) {
                             HubFeatureTile(
@@ -54,19 +81,6 @@ struct HubView: View {
                                 description: "Track recurring charges and link them to your cards.",
                                 stat: nil,
                                 accentColor: .blue,
-                                isAvailable: false
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        // ── Card Planner — coming soon ─────────────────────────
-                        NavigationLink(destination: PlannerPlaceholderView()) {
-                            HubFeatureTile(
-                                title: "Card Planner",
-                                systemImage: "chart.line.uptrend.xyaxis",
-                                description: "Track 5/24, issuer velocity rules, and bonus cooldown windows.",
-                                stat: nil,
-                                accentColor: .purple,
                                 isAvailable: false
                             )
                         }
@@ -98,5 +112,5 @@ struct HubView: View {
 
 #Preview {
     HubView()
-        .modelContainer(for: [BonusCard.self], inMemory: true)
+        .modelContainer(for: [BonusCard.self, CardApplication.self], inMemory: true)
 }
