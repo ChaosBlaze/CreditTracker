@@ -75,7 +75,7 @@ struct BonusCardRowView: View {
                     if bonus.isCompleted {
                         Image(systemName: "checkmark.seal.fill")
                             .font(.title2)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(Color.green)
                     } else {
                         // Edit button for active cards.
                         Button {
@@ -134,7 +134,7 @@ struct BonusCardRowView: View {
             HStack {
                 Image(systemName: bonus.currentPurchaseAmount >= bonus.purchaseTarget
                       ? "checkmark.circle.fill" : "cart")
-                    .foregroundStyle(bonus.currentPurchaseAmount >= bonus.purchaseTarget ? .green : startColor)
+                    .foregroundStyle(bonus.currentPurchaseAmount >= bonus.purchaseTarget ? Color.green : startColor)
                     .font(.caption)
                 Text("Minimum Spend")
                     .font(.caption.weight(.medium))
@@ -153,7 +153,7 @@ struct BonusCardRowView: View {
             HStack {
                 Image(systemName: bonus.currentDirectDepositAmount >= bonus.directDepositTarget
                       ? "checkmark.circle.fill" : "banknote")
-                    .foregroundStyle(bonus.currentDirectDepositAmount >= bonus.directDepositTarget ? .green : startColor)
+                    .foregroundStyle(bonus.currentDirectDepositAmount >= bonus.directDepositTarget ? Color.green : startColor)
                     .font(.caption)
                 Text("Direct Deposit")
                     .font(.caption.weight(.medium))
@@ -176,7 +176,7 @@ struct BonusCardRowView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: bonus.isOtherCompleted ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(bonus.isOtherCompleted ? .green : .secondary)
+                    .foregroundStyle(bonus.isOtherCompleted ? Color.green : Color.secondary)
                     .font(.body)
                 Text(bonus.otherDescription.isEmpty ? "Other Requirement" : bonus.otherDescription)
                     .font(.caption.weight(.medium))

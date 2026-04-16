@@ -121,6 +121,8 @@ struct CreditTrackerApp: App {
 // MARK: - MainTabView
 
 struct MainTabView: View {
+    @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
+
     var body: some View {
         TabView {
             Tab("Cards", systemImage: "creditcard.fill") {
@@ -136,5 +138,6 @@ struct MainTabView: View {
                 SettingsView()
             }
         }
+        .preferredColorScheme(appearanceMode.colorScheme)
     }
 }

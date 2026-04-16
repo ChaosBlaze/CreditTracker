@@ -2,39 +2,99 @@ import SwiftUI
 import SwiftData
 import UserNotifications
 
+// MARK: - AppearanceMode
+
+enum AppearanceMode: String, CaseIterable {
+    case system, light, dark
+
+    var label: String {
+        switch self {
+        case .system: return "Auto"
+        case .light:  return "Light"
+        case .dark:   return "Dark"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .system: return "circle.lefthalf.filled"
+        case .light:  return "sun.max.fill"
+        case .dark:   return "moon.fill"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light:  return .light
+        case .dark:   return .dark
+        }
+    }
+}
+
+// MARK: - SettingsView
+
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
-    @AppStorage(Constants.hasSeededDataKey)        private var hasSeededData      = false
-    @AppStorage(Constants.defaultReminderDaysKey)  private var defaultReminderDays = Constants.defaultReminderDays
+    @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
+    @AppStorage(Constants.hasSeededDataKey) private var hasSeededData = false
 
-    // FamilySettings singleton — queried as an array, accessed via .first.
-    // The .task modifier ensures the singleton is created before user interaction.
     @Query private var settingsArray: [FamilySettings]
-
     @State private var notificationManager = NotificationManager.shared
-    @State private var syncService         = FirestoreSyncService.shared
-    @State private var showResetConfirmation = false
-    @State private var showResetDone         = false
-    @State private var showJoinFamilySheet   = false
 
-    // MARK: - FamilySettings Accessor
-
-    /// Returns the live FamilySettings singleton, or nil while the DB is loading.
-    /// `ensureFamilySettingsSingleton()` in `.task {}` guarantees it exists quickly.
     private var familySettings: FamilySettings? { settingsArray.first }
-
-    // MARK: - Body
 
     var body: some View {
         NavigationStack {
             List {
-                notificationSection
-                defaultsSection
-                syncSection
-                familySyncSection
-                dataSection
-                aboutSection
-                debugSection
+                appearanceSection
+
+                Section {
+                    NavigationLink {
+                        AccountSettingsView()
+                    } label: {
+                        settingsRow(
+                            icon: "person.crop.circle.fill",
+                            color: .blue,
+                            title: "Account",
+                            subtitle: "Family sync & device"
+                        )
+                    }
+
+                    NavigationLink {
+                        NotificationsSettingsView()
+                    } label: {
+                        settingsRow(
+                            icon: "bell.fill",
+                            color: .red,
+                            title: "Notifications",
+                            subtitle: notificationSubtitle
+                        )
+                    }
+
+                    NavigationLink {
+                        AboutSettingsView()
+                    } label: {
+                        settingsRow(
+                            icon: "info.circle.fill",
+                            color: Color(hue: 0.6, saturation: 0.5, brightness: 0.6),
+                            title: "About",
+                            subtitle: "CreditTracker v4.0"
+                        )
+                    }
+
+                    NavigationLink {
+                        OtherSettingsView()
+                    } label: {
+                        settingsRow(
+                            icon: "ellipsis.circle.fill",
+                            color: .orange,
+                            title: "Other",
+                            subtitle: "Data & debug tools"
+                        )
+                    }
+                }
+
                 developerSignatureSection
             }
             .listStyle(.insetGrouped)
@@ -43,100 +103,183 @@ struct SettingsView: View {
                 await notificationManager.checkStatus()
                 ensureFamilySettingsSingleton()
             }
-            .alert("Reset All Data?", isPresented: $showResetConfirmation) {
-                Button("Reset", role: .destructive) { resetData() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This will delete all cards and credits, then re-seed the default data. This cannot be undone.")
-            }
-            .alert("Data Reset", isPresented: $showResetDone) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("Default cards and credits have been restored.")
-            }
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Appearance Section
 
-    private var notificationSection: some View {
-        Section("Notifications") {
-            HStack {
-                Label("Permission Status", systemImage: "bell")
-                Spacer()
-                statusBadge
-            }
-
-            Button {
-                notificationManager.scheduleTestNotification()
-            } label: {
-                Label("Test Notification", systemImage: "bell.badge.waveform")
-                    .foregroundStyle(.blue)
-            }
-
-            if notificationManager.authorizationStatus == .denied {
-                Button {
-                    openSettings()
-                } label: {
-                    Label("Open System Settings", systemImage: "gear")
-                        .foregroundStyle(.blue)
-                }
-            } else if notificationManager.authorizationStatus == .notDetermined {
-                Button {
-                    Task { await notificationManager.requestPermission() }
-                } label: {
-                    Label("Request Permission", systemImage: "bell.badge")
-                        .foregroundStyle(.blue)
+    @ViewBuilder
+    private var appearanceSection: some View {
+        Section {
+            HStack(spacing: 8) {
+                ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                    Button {
+                        withAnimation(.spring(duration: 0.25)) {
+                            appearanceMode = mode
+                        }
+                    } label: {
+                        VStack(spacing: 5) {
+                            Image(systemName: mode.icon)
+                                .font(.system(size: 18, weight: .medium))
+                            Text(mode.label)
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(
+                            appearanceMode == mode
+                                ? Color.accentColor.opacity(0.15)
+                                : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 10)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(
+                                    appearanceMode == mode ? Color.accentColor.opacity(0.4) : Color.clear,
+                                    lineWidth: 1
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(appearanceMode == mode ? .accent : .secondary)
                 }
             }
+            .padding(4)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 13))
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        } header: {
+            Text("Appearance")
         }
     }
 
-    private var defaultsSection: some View {
-        Section("Reminders") {
-            Stepper(
-                "Default Reminder: \(defaultReminderDays) day\(defaultReminderDays == 1 ? "" : "s") before",
-                value: $defaultReminderDays,
-                in: Constants.minReminderDays...Constants.maxReminderDays
-            )
+    // MARK: - Settings Row Helper
 
-            // Discord reminder toggle — reads/writes FamilySettings and syncs to Firestore.
-            Toggle("Discord Redeem Reminder", isOn: discordEnabledBinding)
+    @ViewBuilder
+    private func settingsRow(icon: String, color: Color, title: String, subtitle: String) -> some View {
+        HStack(spacing: 13) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(color, in: RoundedRectangle(cornerRadius: 8))
 
-            // Time picker — only shown when the reminder is active.
-            if familySettings?.discordReminderEnabled == true {
-                DatePicker(
-                    "Reminder Time",
-                    selection: discordReminderTimeBinding,
-                    displayedComponents: .hourAndMinute
-                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
+        .padding(.vertical, 3)
     }
 
-    private var syncSection: some View {
-        Section("Firestore Sync") {
+    // MARK: - Developer Signature
+
+    private var developerSignatureSection: some View {
+        Section {
+            TimelineView(.animation) { timeline in
+                let phase = timeline.date.timeIntervalSinceReferenceDate * (1.0 / 12.0)
+                let t = phase.truncatingRemainder(dividingBy: 1.0)
+
+                let stops: [Gradient.Stop] = [
+                    .init(color: appleIntelligenceColor(base: 0.75, offset: t), location: 0.00),
+                    .init(color: appleIntelligenceColor(base: 0.88, offset: t), location: 0.33),
+                    .init(color: appleIntelligenceColor(base: 0.58, offset: t), location: 0.66),
+                    .init(color: appleIntelligenceColor(base: 0.08, offset: t), location: 1.00),
+                ]
+
+                Text("Built by Shekar")
+                    .font(.system(size: 14, weight: .medium))
+                    .tracking(0.4)
+                    .foregroundStyle(
+                        LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
+                    )
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 6)
+            }
+        }
+        .listRowBackground(Color.clear)
+    }
+
+    private func appleIntelligenceColor(base: Double, offset: Double) -> Color {
+        let hue = (base + offset).truncatingRemainder(dividingBy: 1.0)
+        return Color(hue: hue, saturation: 0.68, brightness: 0.92)
+    }
+
+    // MARK: - Notification Subtitle
+
+    private var notificationSubtitle: String {
+        switch notificationManager.authorizationStatus {
+        case .authorized:   return "Enabled"
+        case .denied:       return "Denied – tap to fix"
+        case .provisional:  return "Provisional"
+        default:            return "Not yet requested"
+        }
+    }
+
+    // MARK: - FamilySettings Bootstrap
+
+    private func ensureFamilySettingsSingleton() {
+        guard settingsArray.isEmpty else { return }
+        let settings = FamilySettings.migratingFromAppStorage()
+        context.insert(settings)
+        try? context.save()
+        Task { await FirestoreSyncService.shared.upload(settings) }
+    }
+}
+
+// MARK: - AccountSettingsView
+
+struct AccountSettingsView: View {
+    @Environment(\.modelContext) private var context
+    @State private var syncService = FirestoreSyncService.shared
+    @State private var showJoinFamilySheet = false
+
+    var body: some View {
+        List {
+            firestoreSyncSection
+            familySyncSection
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Account")
+        .navigationBarTitleDisplayMode(.large)
+        .sheet(isPresented: $showJoinFamilySheet) {
+            JoinFamilySheet(modelContext: context)
+        }
+    }
+
+    // MARK: Firestore Sync
+
+    private var firestoreSyncSection: some View {
+        Section {
             HStack {
                 Label("Status", systemImage: "arrow.triangle.2.circlepath.icloud")
                 Spacer()
                 syncStateBadge
             }
+
             HStack {
                 Label("Last Synced", systemImage: "clock")
                 Spacer()
-                if let date = syncService.lastSyncedAt {
-                    Text(date, style: .relative)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Never")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                Group {
+                    if let date = syncService.lastSyncedAt {
+                        Text(date, style: .relative)
+                    } else {
+                        Text("Never")
+                    }
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
+
             LabeledContent("Device ID", value: String(syncService.userID.prefix(8)) + "…")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        } header: {
+            Text("Sync")
         }
     }
 
@@ -165,17 +308,21 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Family Sync
+
     private var familySyncSection: some View {
-        Section("Family Sync") {
-            VStack(alignment: .leading, spacing: 8) {
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Your Shared Family ID")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 HStack {
                     Text(syncService.userID)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.system(.footnote, design: .monospaced))
                         .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
 
                     Spacer()
 
@@ -185,6 +332,7 @@ struct SettingsView: View {
                         generator.notificationOccurred(.success)
                     } label: {
                         Image(systemName: "doc.on.doc")
+                            .foregroundStyle(.blue)
                     }
                     .buttonStyle(.borderless)
                 }
@@ -193,103 +341,151 @@ struct SettingsView: View {
             Button("Join Existing Family") {
                 showJoinFamilySheet = true
             }
-        }
-        .sheet(isPresented: $showJoinFamilySheet) {
-            JoinFamilySheet(modelContext: context)
+        } header: {
+            Text("Family")
+        } footer: {
+            Text("Share your Family ID with others to sync cards and credits across devices.")
         }
     }
+}
 
-    private var dataSection: some View {
-        Section("Data") {
-            Button {
-                showResetConfirmation = true
-            } label: {
-                Label("Reset to Default Data", systemImage: "arrow.counterclockwise")
-                    .foregroundStyle(.orange)
+// MARK: - NotificationsSettingsView
+
+struct NotificationsSettingsView: View {
+    @Environment(\.modelContext) private var context
+    @AppStorage(Constants.defaultReminderDaysKey) private var defaultReminderDays = Constants.defaultReminderDays
+    @Query private var settingsArray: [FamilySettings]
+    @State private var notificationManager = NotificationManager.shared
+
+    private var familySettings: FamilySettings? { settingsArray.first }
+
+    var body: some View {
+        List {
+            permissionSection
+            creditRemindersSection
+            discordSection
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Notifications")
+        .navigationBarTitleDisplayMode(.large)
+        .task { await notificationManager.checkStatus() }
+    }
+
+    // MARK: Permission
+
+    private var permissionSection: some View {
+        Section {
+            HStack {
+                Label("Permission", systemImage: "bell")
+                Spacer()
+                statusBadge
             }
-        }
-    }
 
-    private var aboutSection: some View {
-        Section("About") {
-            LabeledContent("App",        value: "CreditTracker")
-            LabeledContent("Version",    value: "4.0")
-            LabeledContent("iOS Target", value: "26.0+")
-            LabeledContent("Bundle ID",  value: Constants.bundleID)
-                .font(.caption)
-        }
-    }
-
-    private var debugSection: some View {
-        Section("Debug (Temporary)") {
-            Button("Force Upload All Data") {
-                Task { @MainActor in
-                    let cards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
-                    for card in cards { await syncService.upload(card) }
-
-                    let credits = (try? context.fetch(FetchDescriptor<Credit>())) ?? []
-                    for credit in credits { await syncService.upload(credit) }
-
-                    let logs = (try? context.fetch(FetchDescriptor<PeriodLog>())) ?? []
-                    for log in logs { await syncService.upload(log) }
-
-                    // Also upload FamilySettings so the cloud is current.
-                    if let settings = familySettings {
-                        await syncService.upload(settings)
-                    }
-
-                    print("Finished uploading \(cards.count) cards, \(credits.count) credits, and \(logs.count) logs.")
+            if notificationManager.authorizationStatus == .denied {
+                Button {
+                    openSettings()
+                } label: {
+                    Label("Open System Settings", systemImage: "arrow.up.right.square")
+                        .foregroundStyle(.blue)
+                }
+            } else if notificationManager.authorizationStatus == .notDetermined {
+                Button {
+                    Task { await notificationManager.requestPermission() }
+                } label: {
+                    Label("Request Permission", systemImage: "bell.badge")
+                        .foregroundStyle(.blue)
                 }
             }
-        }
-    }
 
-    private var developerSignatureSection: some View {
-        Section {
-            TimelineView(.animation) { timeline in
-                let phase = timeline.date.timeIntervalSinceReferenceDate * (1.0 / 12.0)
-                let t = phase.truncatingRemainder(dividingBy: 1.0)
-
-                let stops: [Gradient.Stop] = [
-                    .init(color: appleIntelligenceColor(base: 0.75, offset: t), location: 0.00),
-                    .init(color: appleIntelligenceColor(base: 0.88, offset: t), location: 0.33),
-                    .init(color: appleIntelligenceColor(base: 0.58, offset: t), location: 0.66),
-                    .init(color: appleIntelligenceColor(base: 0.08, offset: t), location: 1.00),
-                ]
-
-                Text("Built by Shekar")
-                    .font(.system(size: 14, weight: .medium, design: .default))
-                    .tracking(0.4)
-                    .foregroundStyle(
-                        LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
-                    )
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 6)
+            Button {
+                notificationManager.scheduleTestNotification()
+            } label: {
+                Label("Send Test Notification", systemImage: "bell.badge.waveform")
+                    .foregroundStyle(.blue)
             }
+        } header: {
+            Text("Status")
         }
-        .listRowBackground(Color.clear)
     }
 
-    private func appleIntelligenceColor(base: Double, offset: Double) -> Color {
-        let hue = (base + offset).truncatingRemainder(dividingBy: 1.0)
-        return Color(hue: hue, saturation: 0.68, brightness: 0.92)
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch notificationManager.authorizationStatus {
+        case .authorized:
+            badge("Enabled", color: .green)
+        case .denied:
+            badge("Denied", color: .red)
+        case .provisional:
+            badge("Provisional", color: .orange)
+        default:
+            Text("Not Requested")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
     }
 
-    // MARK: - FamilySettings Bindings
+    private func badge(_ label: String, color: Color) -> some View {
+        Text(label)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color, in: Capsule())
+    }
 
-    /// Toggle binding for Discord Redeem Reminder enabled state.
-    ///
-    /// On change: persists to SwiftData, mirrors to UserDefaults (for rescheduleAll
-    /// backward compat), reschedules notification, and pushes to Firestore.
+    // MARK: Credit Reminders
+
+    private var creditRemindersSection: some View {
+        Section {
+            Stepper(
+                "Default: \(defaultReminderDays) day\(defaultReminderDays == 1 ? "" : "s") before",
+                value: $defaultReminderDays,
+                in: Constants.minReminderDays...Constants.maxReminderDays
+            )
+        } header: {
+            Text("Credit Reminders")
+        } footer: {
+            Text("How many days before a credit expires to send a reminder. Applies to all credits unless overridden.")
+        }
+    }
+
+    // MARK: Discord
+
+    private var discordSection: some View {
+        Section {
+            Toggle("Discord Redeem Reminder", isOn: discordEnabledBinding)
+
+            if familySettings?.discordReminderEnabled == true {
+                DatePicker(
+                    "Reminder Time",
+                    selection: discordReminderTimeBinding,
+                    displayedComponents: .hourAndMinute
+                )
+            }
+        } header: {
+            Text("Discord")
+        } footer: {
+            Text("Sends a daily push notification reminding you to redeem Discord Nitro credits.")
+        }
+    }
+
+    // MARK: Status Badge Helper
+
+    private func openSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+        }
+    }
+
+    // MARK: Discord Bindings
+
     private var discordEnabledBinding: Binding<Bool> {
         Binding(
             get: { familySettings?.discordReminderEnabled ?? false },
             set: { newValue in
                 guard let settings = familySettings else { return }
                 settings.discordReminderEnabled = newValue
-                // Stamp our FCM token so other devices know who made this change.
                 settings.lastModifiedByToken = UserDefaults.standard.string(forKey: Constants.fcmTokenKey) ?? ""
-                // Mirror to UserDefaults so rescheduleAll() stays in sync.
                 UserDefaults.standard.set(newValue, forKey: Constants.discordReminderEnabledKey)
                 try? context.save()
                 if newValue {
@@ -305,10 +501,6 @@ struct SettingsView: View {
         )
     }
 
-    /// DatePicker binding mapping a `Date` (time only) to FamilySettings hour + minute.
-    ///
-    /// On change: persists to SwiftData, mirrors to UserDefaults, reschedules
-    /// notification, and pushes to Firestore.
     private var discordReminderTimeBinding: Binding<Date> {
         Binding(
             get: {
@@ -324,12 +516,9 @@ struct SettingsView: View {
                 let comps     = Calendar.current.dateComponents([.hour, .minute], from: newDate)
                 let newHour   = comps.hour   ?? Constants.discordReminderDefaultHour
                 let newMinute = comps.minute ?? Constants.discordReminderDefaultMinute
-
-                settings.discordReminderHour     = newHour
-                settings.discordReminderMinute   = newMinute
-                // Stamp FCM token so other devices can identify the change author.
+                settings.discordReminderHour   = newHour
+                settings.discordReminderMinute = newMinute
                 settings.lastModifiedByToken = UserDefaults.standard.string(forKey: Constants.fcmTokenKey) ?? ""
-                // Mirror to UserDefaults for rescheduleAll() backward compat.
                 UserDefaults.standard.set(newHour,   forKey: Constants.discordReminderHourKey)
                 UserDefaults.standard.set(newMinute, forKey: Constants.discordReminderMinuteKey)
                 try? context.save()
@@ -341,56 +530,101 @@ struct SettingsView: View {
             }
         )
     }
+}
 
-    // MARK: - FamilySettings Bootstrap
+// MARK: - AboutSettingsView
 
-    /// Creates the FamilySettings singleton on first launch, migrating values from the
-    /// legacy @AppStorage keys so existing users keep their configured reminder time.
-    private func ensureFamilySettingsSingleton() {
-        guard settingsArray.isEmpty else { return }
-        let settings = FamilySettings.migratingFromAppStorage()
-        context.insert(settings)
-        try? context.save()
-        // Upload immediately so other family devices receive the initial document.
-        Task { await FirestoreSyncService.shared.upload(settings) }
+struct AboutSettingsView: View {
+    var body: some View {
+        List {
+            Section {
+                LabeledContent("App",        value: "CreditTracker")
+                LabeledContent("Version",    value: "4.0")
+                LabeledContent("iOS Target", value: "26.0+")
+                LabeledContent("Bundle ID",  value: Constants.bundleID)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("App Info")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("About")
+        .navigationBarTitleDisplayMode(.large)
     }
+}
 
-    // MARK: - Helpers
+// MARK: - OtherSettingsView
 
-    @ViewBuilder
-    private var statusBadge: some View {
-        switch notificationManager.authorizationStatus {
-        case .authorized:
-            Text("Enabled")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.green, in: Capsule())
-        case .denied:
-            Text("Denied")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.red, in: Capsule())
-        case .provisional:
-            Text("Provisional")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.orange, in: Capsule())
-        default:
-            Text("Not Requested")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+struct OtherSettingsView: View {
+    @Environment(\.modelContext) private var context
+    @AppStorage(Constants.hasSeededDataKey) private var hasSeededData = false
+    @Query private var settingsArray: [FamilySettings]
+    @State private var showResetConfirmation = false
+    @State private var showResetDone = false
+
+    private var familySettings: FamilySettings? { settingsArray.first }
+
+    var body: some View {
+        List {
+            dataSection
+            debugSection
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Other")
+        .navigationBarTitleDisplayMode(.large)
+        .alert("Reset All Data?", isPresented: $showResetConfirmation) {
+            Button("Reset", role: .destructive) { resetData() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will delete all cards and credits, then re-seed the default data. This cannot be undone.")
+        }
+        .alert("Data Reset", isPresented: $showResetDone) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Default cards and credits have been restored.")
         }
     }
 
-    private func openSettings() {
-        if let url = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(url)
+    private var dataSection: some View {
+        Section {
+            Button {
+                showResetConfirmation = true
+            } label: {
+                Label("Reset to Default Data", systemImage: "arrow.counterclockwise")
+                    .foregroundStyle(.orange)
+            }
+        } header: {
+            Text("Data")
+        } footer: {
+            Text("Removes all current cards and credits, then restores the original set of example cards.")
+        }
+    }
+
+    private var debugSection: some View {
+        Section {
+            Button("Force Upload All Data") {
+                Task { @MainActor in
+                    let syncService = FirestoreSyncService.shared
+
+                    let cards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
+                    for card in cards { await syncService.upload(card) }
+
+                    let credits = (try? context.fetch(FetchDescriptor<Credit>())) ?? []
+                    for credit in credits { await syncService.upload(credit) }
+
+                    let logs = (try? context.fetch(FetchDescriptor<PeriodLog>())) ?? []
+                    for log in logs { await syncService.upload(log) }
+
+                    if let settings = familySettings {
+                        await syncService.upload(settings)
+                    }
+
+                    print("Uploaded \(cards.count) cards, \(credits.count) credits, \(logs.count) logs.")
+                }
+            }
+        } header: {
+            Text("Debug")
         }
     }
 
@@ -445,7 +679,7 @@ struct JoinFamilySheet: View {
 
                     if let errorMessage {
                         Text(errorMessage)
-                            .foregroundColor(.red)
+                            .foregroundStyle(.red)
                             .font(.caption)
                     }
                 }
