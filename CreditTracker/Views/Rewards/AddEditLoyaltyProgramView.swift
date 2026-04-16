@@ -126,10 +126,11 @@ struct ProgramPickerView: View {
     private func catalogRow(_ template: LoyaltyProgramTemplate) -> some View {
         HStack(spacing: 14) {
             ProgramIconView(
-                initials: template.initials,
-                startColor: Color(hex: template.gradientStartHex),
-                endColor: Color(hex: template.gradientEndHex),
-                size: 40
+                initials:      template.initials,
+                startColor:    Color(hex: template.gradientStartHex),
+                endColor:      Color(hex: template.gradientEndHex),
+                size:          40,
+                logoAssetName: template.logoAssetName
             )
             Text(template.name)
                 .font(.body)
