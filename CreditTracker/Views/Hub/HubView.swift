@@ -58,6 +58,19 @@ struct HubView: View {
                             )
                         }
                         .buttonStyle(.plain)
+
+                        // ── Card Planner — coming soon ─────────────────────────
+                        NavigationLink(destination: PlannerPlaceholderView()) {
+                            HubFeatureTile(
+                                title: "Card Planner",
+                                systemImage: "chart.line.uptrend.xyaxis",
+                                description: "Track 5/24, issuer velocity rules, and bonus cooldown windows.",
+                                stat: nil,
+                                accentColor: .purple,
+                                isAvailable: false
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 16)
                 }
