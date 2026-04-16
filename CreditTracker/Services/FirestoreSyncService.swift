@@ -740,9 +740,12 @@ final class FirestoreSyncService {
         if let v = data["programName"] as? String,     v != program.programName     { program.programName = v;     changed = true }
         if let v = data["category"] as? String,         v != program.category         { program.category = v;         changed = true }
         if let v = data["ownerName"] as? String,         v != program.ownerName         { program.ownerName = v;         changed = true }
-        if let v = data["pointBalance"] as? Int,         v != program.pointBalance      { program.pointBalance = v;      changed = true }
         if let v = data["gradientStartHex"] as? String, v != program.gradientStartHex  { program.gradientStartHex = v;  changed = true }
         if let v = data["gradientEndHex"] as? String,   v != program.gradientEndHex    { program.gradientEndHex = v;    changed = true }
+        // Integers from Firestore may arrive as Int or NSNumber — use the same
+        // double-cast pattern as claimedAmount in applyPeriodLogChange.
+        let remoteBalance = (data["pointBalance"] as? Int) ?? (data["pointBalance"] as? NSNumber)?.intValue
+        if let v = remoteBalance, v != program.pointBalance { program.pointBalance = v; changed = true }
 
         // Firestore stores Date as a Timestamp object; convert before comparing.
         if let ts = data["lastUpdated"] as? Timestamp {

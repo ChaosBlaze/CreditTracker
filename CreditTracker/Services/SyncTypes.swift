@@ -209,10 +209,12 @@ extension LoyaltyProgram: FirestoreSyncable {
             "gradientStartHex":  gradientStartHex,
             "gradientEndHex":    gradientEndHex,
         ]
-        // notes is optional — only write when set so Firestore docs stay clean.
-        if let notes = notes {
-            payload["notes"] = notes
-        }
+        // Always include `notes` — when nil, write NSNull() so Firestore stores a
+        // null value rather than leaving the old value in place.  The listener on
+        // every other device sees the null field, which `applyLoyaltyProgramChange`
+        // correctly maps back to `program.notes = nil`.  Without this, clearing
+        // notes locally never propagates to family members.
+        payload["notes"] = notes ?? NSNull()
         return payload
     }
 }
