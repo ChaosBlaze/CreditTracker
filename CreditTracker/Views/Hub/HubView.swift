@@ -6,6 +6,7 @@ import SwiftData
 struct HubView: View {
     @Query private var bonuses: [BonusCard]
     @Query private var applications: [CardApplication]
+    @Query private var subscriptions: [Subscription]
 
     @AppStorage("plannerActivePlayer") private var activePlayer: String = "P1"
 
@@ -19,6 +20,13 @@ struct HubView: View {
         case 1:  return "1 active bonus"
         default: return "\(activeBonusCount) active bonuses"
         }
+    }
+
+    private var subscriptionStat: String {
+        let active = subscriptions.filter { $0.isActive }
+        guard !active.isEmpty else { return "No subscriptions" }
+        let monthly = active.reduce(0.0) { $0 + $1.monthlyCost }
+        return "\(active.count) active · $\(String(format: "%.0f", monthly))/mo"
     }
 
     private var plannerStat: String {
@@ -73,15 +81,15 @@ struct HubView: View {
                         }
                         .buttonStyle(.plain)
 
-                        // ── Subscriptions — coming soon ────────────────────────
-                        NavigationLink(destination: SubscriptionsPlaceholderView()) {
+                        // ── Subscriptions — live ──────────────────────────────
+                        NavigationLink(destination: SubscriptionsView()) {
                             HubFeatureTile(
                                 title: "Subscriptions",
                                 systemImage: "repeat",
                                 description: "Track recurring charges and link them to your cards.",
-                                stat: nil,
+                                stat: subscriptionStat,
                                 accentColor: .blue,
-                                isAvailable: false
+                                isAvailable: true
                             )
                         }
                         .buttonStyle(.plain)
@@ -112,5 +120,5 @@ struct HubView: View {
 
 #Preview {
     HubView()
-        .modelContainer(for: [BonusCard.self, CardApplication.self], inMemory: true)
+        .modelContainer(for: [BonusCard.self, CardApplication.self, Subscription.self], inMemory: true)
 }
