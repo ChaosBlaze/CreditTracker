@@ -70,7 +70,7 @@ enum BillingCycle: String, CaseIterable, Codable {
     }
 
     /// Approximate monthly cost multiplier for totals display.
-    var monthlyMultiplier: Double {
+    nonisolated var monthlyMultiplier: Double {
         switch self {
         case .weekly:     return 52.0 / 12.0
         case .monthly:    return 1.0
@@ -81,7 +81,7 @@ enum BillingCycle: String, CaseIterable, Codable {
     }
 
     /// Calendar months to add per cycle (nil = use .weekOfYear instead).
-    var monthsPerCycle: Int? {
+    nonisolated var monthsPerCycle: Int? {
         switch self {
         case .weekly:     return nil
         case .monthly:    return 1
