@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Sync State
 
-/// Observable state exposed by FirestoreSyncService.
+/// Observable state exposed by SyncCoordinator.
 enum SyncState: Equatable {
     case idle
     case syncing
@@ -19,7 +19,7 @@ enum SyncError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return "FirestoreSyncService must be configured before use. Call configure(modelContext:) at app startup."
+            return "SyncCoordinator must be configured before use. Call configure(modelContext:) at app startup."
         case .uploadFailed(let id, let error):
             return "Firestore upload failed for item \(id): \(error.localizedDescription)"
         case .localWipeFailed(let error):
@@ -30,21 +30,23 @@ enum SyncError: LocalizedError {
 
 // MARK: - Syncable Protocol
 
-/// Marks a SwiftData model as syncable to Firestore.
+/// Marks a SwiftData model as uploadable to Firestore.
 ///
-/// To extend the sync scope to additional models in the future:
-/// 1. Add a conformance extension below.
-/// 2. Call `FirestoreSyncService.shared.upload(_:)` after any local save.
+/// ## Extending Sync to New Model Types
+/// 1. Add a `FirestoreSyncable` conformance extension below.
+/// 2. Create a corresponding Repository in Services/ that owns the listener.
+/// 3. Register the repository in `SyncCoordinator.buildRepositories(context:)`.
+/// 4. Call `SyncCoordinator.shared.upload(_:)` after any local save.
 ///
-/// The protocol is intentionally minimal — it only prescribes serialization.
-/// All network and conflict-resolution logic lives in `FirestoreSyncService`.
+/// The protocol covers upload serialization only. Download/merge logic lives in
+/// each model's Repository, keeping responsibilities clearly separated.
 protocol FirestoreSyncable {
     /// Stable string identifier used as the Firestore document ID.
     var syncID: String { get }
-    /// Sub-collection name under the user document in Firestore.
+    /// Sub-collection name under `users/{userID}/` in Firestore.
     static var firestoreCollectionName: String { get }
-    /// Returns the fields to write to Firestore.
-    /// Do NOT include `updatedAt` here — the service appends a server timestamp.
+    /// Returns the model fields to write to Firestore.
+    /// Do NOT include `updatedAt` or `deviceID` — SyncCoordinator appends those.
     func firestorePayload() -> [String: Any]
 }
 
@@ -57,18 +59,15 @@ extension PeriodLog: FirestoreSyncable {
 
     func firestorePayload() -> [String: Any] {
         var payload: [String: Any] = [
-            "periodLabel": periodLabel,
-            "periodStart": periodStart,
-            "periodEnd": periodEnd,
-            "status": status,
+            "periodLabel":   periodLabel,
+            "periodStart":   periodStart,
+            "periodEnd":     periodEnd,
+            "status":        status,
             "claimedAmount": claimedAmount
         ]
-        
-        // Foreign Key to link back to parent Credit
         if let creditID = credit?.id.uuidString {
             payload["creditID"] = creditID
         }
-        
         return payload
     }
 }
@@ -81,25 +80,17 @@ extension Card: FirestoreSyncable {
 
     func firestorePayload() -> [String: Any] {
         var payload: [String: Any] = [
-            "name": name,
-            "annualFee": annualFee,
-            "gradientStartHex": gradientStartHex,
-            "gradientEndHex": gradientEndHex,
-            "sortOrder": sortOrder,
-            // Payment reminder fields — always included so other devices can read them.
-            "paymentReminderEnabled": paymentReminderEnabled,
+            "name":                      name,
+            "annualFee":                 annualFee,
+            "gradientStartHex":          gradientStartHex,
+            "gradientEndHex":            gradientEndHex,
+            "sortOrder":                 sortOrder,
+            "paymentReminderEnabled":    paymentReminderEnabled,
             "paymentReminderDaysBefore": paymentReminderDaysBefore,
-            // Annual fee reminder — synced so the 30-day notification fires on all devices.
-            "annualFeeReminderEnabled": annualFeeReminderEnabled
+            "annualFeeReminderEnabled":  annualFeeReminderEnabled
         ]
-        // Optional fields: only write when set so Firestore docs stay clean for
-        // cards that haven't configured these values yet.
-        if let dueDay = paymentDueDay {
-            payload["paymentDueDay"] = dueDay
-        }
-        if let feeDate = annualFeeDate {
-            payload["annualFeeDate"] = feeDate
-        }
+        if let dueDay  = paymentDueDay  { payload["paymentDueDay"]  = dueDay }
+        if let feeDate = annualFeeDate  { payload["annualFeeDate"]   = feeDate }
         return payload
     }
 }
@@ -109,19 +100,16 @@ extension Card: FirestoreSyncable {
 extension FamilySettings: FirestoreSyncable {
 
     /// Fixed document ID — all family devices share this single Firestore document.
-    /// Using a constant rather than the model's UUID guarantees convergence: every
-    /// device upserts the same path, so there's never more than one cloud document.
     var syncID: String { "family-discord-settings" }
 
     static var firestoreCollectionName: String { "familySettings" }
 
     func firestorePayload() -> [String: Any] {
         [
-            "discordReminderEnabled":  discordReminderEnabled,
-            "discordReminderHour":     discordReminderHour,
-            "discordReminderMinute":   discordReminderMinute,
-            // Stamped by the writing device so receivers know whether to alert the user.
-            "lastModifiedByToken":     lastModifiedByToken
+            "discordReminderEnabled": discordReminderEnabled,
+            "discordReminderHour":    discordReminderHour,
+            "discordReminderMinute":  discordReminderMinute,
+            "lastModifiedByToken":    lastModifiedByToken
         ]
     }
 }
@@ -130,39 +118,25 @@ extension FamilySettings: FirestoreSyncable {
 
 extension BonusCard: FirestoreSyncable {
     var syncID: String { id.uuidString }
-
-    /// Stored in its own top-level sub-collection so it can be queried independently
-    /// of the card/credit/periodLog hierarchy.
     static var firestoreCollectionName: String { "bonusCards" }
 
     func firestorePayload() -> [String: Any] {
         [
-            // Core identity
-            "cardName":                    cardName,
-            "bonusAmount":                 bonusAmount,
-            "dateOpened":                  dateOpened,
-
-            // QoL fields (Phase 1)
-            "accountHolderName":           accountHolderName,
-            "miscNotes":                   miscNotes,
-
-            // Minimum spend requirement
-            "requiresPurchases":           requiresPurchases,
-            "purchaseTarget":              purchaseTarget,
-            "currentPurchaseAmount":       currentPurchaseAmount,
-
-            // Direct deposit requirement
-            "requiresDirectDeposit":       requiresDirectDeposit,
-            "directDepositTarget":         directDepositTarget,
-            "currentDirectDepositAmount":  currentDirectDepositAmount,
-
-            // Catch-all "other" requirement
-            "requiresOther":               requiresOther,
-            "otherDescription":            otherDescription,
-            "isOtherCompleted":            isOtherCompleted,
-
-            // Completion state — synced so marking done on one device reflects everywhere
-            "isCompleted":                 isCompleted
+            "cardName":                   cardName,
+            "bonusAmount":                bonusAmount,
+            "dateOpened":                 dateOpened,
+            "accountHolderName":          accountHolderName,
+            "miscNotes":                  miscNotes,
+            "requiresPurchases":          requiresPurchases,
+            "purchaseTarget":             purchaseTarget,
+            "currentPurchaseAmount":      currentPurchaseAmount,
+            "requiresDirectDeposit":      requiresDirectDeposit,
+            "directDepositTarget":        directDepositTarget,
+            "currentDirectDepositAmount": currentDirectDepositAmount,
+            "requiresOther":              requiresOther,
+            "otherDescription":           otherDescription,
+            "isOtherCompleted":           isOtherCompleted,
+            "isCompleted":                isCompleted
         ]
     }
 }
@@ -175,18 +149,15 @@ extension Credit: FirestoreSyncable {
 
     func firestorePayload() -> [String: Any] {
         var payload: [String: Any] = [
-            "name": name,
-            "totalValue": totalValue,
-            "timeframe": timeframe,
-            "reminderDaysBefore": reminderDaysBefore,
+            "name":                  name,
+            "totalValue":            totalValue,
+            "timeframe":             timeframe,
+            "reminderDaysBefore":    reminderDaysBefore,
             "customReminderEnabled": customReminderEnabled
         ]
-
-        // Foreign Key to link back to parent Card
         if let cardID = card?.id.uuidString {
             payload["cardID"] = cardID
         }
-
         return payload
     }
 }
@@ -195,8 +166,6 @@ extension Credit: FirestoreSyncable {
 
 extension CardApplication: FirestoreSyncable {
     var syncID: String { id.uuidString }
-
-    /// Independent top-level sub-collection — one document per application record.
     static var firestoreCollectionName: String { "cardApplications" }
 
     func firestorePayload() -> [String: Any] {
@@ -218,25 +187,20 @@ extension CardApplication: FirestoreSyncable {
 
 extension LoyaltyProgram: FirestoreSyncable {
     var syncID: String { id.uuidString }
-
-    /// Independent top-level sub-collection — not nested under cards or credits.
     static var firestoreCollectionName: String { "loyaltyPrograms" }
 
     func firestorePayload() -> [String: Any] {
         var payload: [String: Any] = [
-            "programName":       programName,
-            "category":          category,
-            "ownerName":         ownerName,
-            "pointBalance":      pointBalance,
-            "lastUpdated":       lastUpdated,
-            "gradientStartHex":  gradientStartHex,
-            "gradientEndHex":    gradientEndHex,
+            "programName":      programName,
+            "category":         category,
+            "ownerName":        ownerName,
+            "pointBalance":     pointBalance,
+            "lastUpdated":      lastUpdated,
+            "gradientStartHex": gradientStartHex,
+            "gradientEndHex":   gradientEndHex
         ]
-        // Always include `notes` — when nil, write NSNull() so Firestore stores a
-        // null value rather than leaving the old value in place.  The listener on
-        // every other device sees the null field, which `applyLoyaltyProgramChange`
-        // correctly maps back to `program.notes = nil`.  Without this, clearing
-        // notes locally never propagates to family members.
+        // Always write `notes` — when nil, NSNull() signals a remote clear.
+        // Without this, clearing notes locally never propagates to other devices.
         payload["notes"] = notes ?? NSNull()
         return payload
     }

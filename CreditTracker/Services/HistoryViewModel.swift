@@ -1,79 +1,39 @@
 import Foundation
-import FirebaseCore
-import FirebaseFirestore
+import SwiftData
 
-// MARK: - Supporting Value Types
+// MARK: - Stats Value Types
+//
+// These value types are kept as-is so HistoryView and HistoryROIDashboard require
+// zero changes. Only the production site (HistoryViewModel) changes — the view
+// still consumes the same HistoryFeedEntry and HistoryStats structs.
 
-/// Lightweight Firestore-hydrated card record used for in-memory resolution.
-struct HistoryCard {
-    let id: String
-    let name: String
-    let annualFee: Double
-    let gradientStartHex: String
-    let gradientEndHex: String
-
-    init?(doc: QueryDocumentSnapshot) {
-        let d = doc.data()
-        guard let name = d["name"] as? String else { return nil }
-        self.id               = doc.documentID
-        self.name             = name
-        self.annualFee        = (d["annualFee"] as? Double) ?? (d["annualFee"] as? NSNumber)?.doubleValue ?? 0
-        self.gradientStartHex = d["gradientStartHex"] as? String ?? "#A8A9AD"
-        self.gradientEndHex   = d["gradientEndHex"]   as? String ?? "#E8E8E8"
-    }
+struct MonthlyDataPoint: Identifiable {
+    let id = UUID()
+    let month: Date
+    let label: String
+    let value: Double
 }
 
-/// Lightweight Firestore-hydrated credit record used for in-memory resolution.
-struct HistoryCredit {
-    let id: String
-    let name: String
-    let totalValue: Double
-    let cardID: String?
+/// Self-contained stats snapshot for the ROI dashboard.
+///
+/// Designed to be forward-compatible: when aggregation moves to a Cloud Function
+/// (stats/ytd document in Firestore), only `HistoryViewModel.buildStats()` changes
+/// — this struct and all views consuming it remain untouched.
+struct HistoryStats {
+    let totalFees: Double
+    let totalExtracted: Double
+    let monthlyBreakdown: [MonthlyDataPoint]
 
-    init?(doc: QueryDocumentSnapshot) {
-        let d = doc.data()
-        guard let name = d["name"] as? String else { return nil }
-        self.id         = doc.documentID
-        self.name       = name
-        self.totalValue = (d["totalValue"] as? Double) ?? (d["totalValue"] as? NSNumber)?.doubleValue ?? 0
-        self.cardID     = d["cardID"] as? String
-    }
-}
+    var netROI:     Double { totalExtracted - totalFees }
+    var isPositive: Bool   { netROI >= 0 }
 
-/// Raw Firestore PeriodLog document — parsed before card/credit resolution.
-private struct RawPeriodLog {
-    let id: String
-    let periodLabel: String
-    let periodStart: Date
-    let periodEnd: Date
-    let status: PeriodStatus
-    let claimedAmount: Double
-    let creditID: String?
-
-    init?(doc: QueryDocumentSnapshot) {
-        let d = doc.data()
-        guard
-            let startTS = d["periodStart"] as? Timestamp,
-            let endTS   = d["periodEnd"]   as? Timestamp,
-            let label   = d["periodLabel"] as? String
-        else { return nil }
-
-        self.id            = doc.documentID
-        self.periodLabel   = label
-        self.periodStart   = startTS.dateValue()
-        self.periodEnd     = endTS.dateValue()
-        self.claimedAmount = (d["claimedAmount"] as? Double) ?? (d["claimedAmount"] as? NSNumber)?.doubleValue ?? 0
-        self.creditID      = d["creditID"] as? String
-
-        let raw    = d["status"] as? String ?? ""
-        self.status = PeriodStatus(rawValue: raw) ?? .pending
-    }
+    static let empty = HistoryStats(totalFees: 0, totalExtracted: 0, monthlyBreakdown: [])
 }
 
 // MARK: - Resolved Feed Entry
 
-/// A fully-flattened, resolved period log entry with all card/credit metadata
-/// joined in memory. This is the model the activity feed rows consume directly.
+/// A fully-flattened period log entry with all card/credit metadata joined.
+/// Consumed by ActivityFeedRow — unchanged from the Firestore-era implementation.
 struct HistoryFeedEntry: Identifiable {
     let id: String
     let periodLabel: String
@@ -88,62 +48,47 @@ struct HistoryFeedEntry: Identifiable {
     let gradientEndHex: String
 }
 
-// MARK: - Stats Model
-
-struct MonthlyDataPoint: Identifiable {
-    let id = UUID()
-    let month: Date
-    let label: String
-    let value: Double
-}
-
-/// Self-contained stats snapshot for the ROI dashboard.
-///
-/// Deliberately a plain value type so that when aggregation moves to Cloud Functions,
-/// the dashboard view can accept this struct directly from a decoded HTTP response
-/// without any refactoring — only the production site in `buildStats()` changes.
-struct HistoryStats {
-    let totalFees: Double
-    let totalExtracted: Double
-    let monthlyBreakdown: [MonthlyDataPoint]
-
-    var netROI: Double   { totalExtracted - totalFees }
-    var isPositive: Bool { netROI >= 0 }
-
-    static let empty = HistoryStats(totalFees: 0, totalExtracted: 0, monthlyBreakdown: [])
-}
-
 // MARK: - HistoryViewModel
 
+/// SwiftData-first history view model (Phase 3 refactor).
+///
+/// ## What changed
+/// - Reads period logs from SwiftData via `FetchDescriptor` (zero Firestore reads).
+/// - Works fully offline — no network required.
+/// - Stats are computed locally from SwiftData (identical algorithm to the old
+///   `buildStats(from:)` — same output, same struct types).
+/// - Eliminates `HistoryCard`, `HistoryCredit`, `RawPeriodLog` mirror structs
+///   and the three parallel Firestore fetches they required.
+/// - Pagination uses `FetchDescriptor.fetchOffset` instead of a Firestore cursor.
+///
+/// ## Forward Compatibility
+/// When the `aggregateYTDStats` Cloud Function is deployed, `buildStats()` can be
+/// replaced with a single `Firestore.document("users/\(id)/stats/ytd").getDocument()`
+/// call — `HistoryView` and `HistoryROIDashboard` require zero changes.
 @Observable
 @MainActor
 final class HistoryViewModel {
 
     // MARK: Observable State
 
-    private(set) var feedEntries: [HistoryFeedEntry] = []
-    private(set) var stats: HistoryStats = .empty
-    private(set) var isLoading    = false
-    private(set) var isLoadingMore = false
-    private(set) var canLoadMore  = false
-    private(set) var errorMessage: String? = nil
+    private(set) var feedEntries:    [HistoryFeedEntry] = []
+    private(set) var stats:          HistoryStats       = .empty
+    private(set) var isLoading:      Bool               = false
+    private(set) var isLoadingMore:  Bool               = false
+    private(set) var canLoadMore:    Bool               = false
+    private(set) var errorMessage:   String?            = nil
 
-    // MARK: Pagination Cursor
+    // MARK: Pagination
 
-    private var lastDocumentSnapshot: DocumentSnapshot? = nil
-    private let pageSize = 50
+    private var pageOffset = 0
+    private let pageSize   = 50
 
-    // MARK: Resolution Maps
+    // MARK: SwiftData Access
 
-    private var cardMap:   [String: HistoryCard]   = [:]
-    private var creditMap: [String: HistoryCredit] = [:]
-
-    // MARK: Firestore
-
-    private var db: Firestore { Firestore.firestore() }
-
-    private var userID: String {
-        UserDefaults.standard.string(forKey: Constants.firestoreUserIDKey) ?? ""
+    /// Reads the app's shared model container (set during app startup in CreditTrackerApp).
+    /// Using mainContext is safe here because HistoryViewModel is @MainActor.
+    private var context: ModelContext? {
+        CreditTrackerApp.sharedModelContainer?.mainContext
     }
 
     // MARK: Computed Helpers
@@ -162,164 +107,126 @@ final class HistoryViewModel {
     // MARK: - Public API
 
     /// Loads the first page. Idempotent: skips if data is already loaded.
-    /// Call from `.task {}` in the view.
     func load() async {
         guard feedEntries.isEmpty else { return }
-        await fetchFresh()
+        fetchFresh()
     }
 
     /// Forces a full reload — clears existing state first.
-    /// Call from `.refreshable {}` in the view.
     func reload() async {
-        feedEntries          = []
-        lastDocumentSnapshot = nil
-        canLoadMore          = false
-        stats                = .empty
-        await fetchFresh()
+        feedEntries   = []
+        pageOffset    = 0
+        canLoadMore   = false
+        stats         = .empty
+        errorMessage  = nil
+        fetchFresh()
     }
 
     /// Appends the next page of results for infinite scroll.
     func loadMore() async {
         guard !isLoadingMore, canLoadMore else { return }
         isLoadingMore = true
-
-        do {
-            let result = try await fetchPeriodLogsPage(after: lastDocumentSnapshot)
-            feedEntries.append(contentsOf: result.entries)
-            lastDocumentSnapshot = result.cursor
-            canLoadMore          = result.canLoadMore
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-
+        appendNextPage()
         isLoadingMore = false
     }
 
-    // MARK: - Private — Orchestration
+    // MARK: - Private — Data Loading
 
-    private func fetchFresh() async {
+    private func fetchFresh() {
         guard !isLoading else { return }
-        guard FirebaseApp.app() != nil, !userID.isEmpty else {
-            errorMessage = "Sync is not configured for this device."
+        guard let context else {
+            errorMessage = "Data store is not available."
             return
         }
 
-        isLoading = true
+        isLoading    = true
         errorMessage = nil
 
-        do {
-            // 1. Build card/credit resolution maps and fetch this year's logs
-            //    for stats — all three run concurrently.
-            async let cardTask     = fetchCards()
-            async let creditTask   = fetchCredits()
-            async let yearLogsTask = fetchCurrentYearLogs()
+        // Compute stats from current-year logs (same algorithm as before, now from SwiftData).
+        let yearLogs = fetchCurrentYearLogs(in: context)
+        stats = buildStats(from: yearLogs, context: context)
 
-            let (cards, credits, yearLogs) = try await (cardTask, creditTask, yearLogsTask)
-
-            cardMap   = Dictionary(uniqueKeysWithValues: cards.map   { ($0.id, $0) })
-            creditMap = Dictionary(uniqueKeysWithValues: credits.map { ($0.id, $0) })
-
-            // 2. Build stats from the full-year logs (independent of feed pagination).
-            stats = buildStats(from: yearLogs)
-
-            // 3. Fetch the activity feed's first page — resolution maps are ready.
-            let result = try await fetchPeriodLogsPage(after: nil)
-            feedEntries          = result.entries
-            lastDocumentSnapshot = result.cursor
-            canLoadMore          = result.canLoadMore
-
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        // Load first page.
+        pageOffset = 0
+        let (entries, hasMore) = fetchPage(offset: 0, in: context)
+        feedEntries = entries
+        pageOffset  = entries.count
+        canLoadMore = hasMore
 
         isLoading = false
     }
 
-    // MARK: - Private — Firestore Fetches
-
-    private func fetchCards() async throws -> [HistoryCard] {
-        let snap = try await userCollection("cards").getDocuments()
-        return snap.documents.compactMap { HistoryCard(doc: $0) }
+    private func appendNextPage() {
+        guard let context else { return }
+        let (entries, hasMore) = fetchPage(offset: pageOffset, in: context)
+        feedEntries.append(contentsOf: entries)
+        pageOffset  += entries.count
+        canLoadMore  = hasMore
     }
 
-    private func fetchCredits() async throws -> [HistoryCredit] {
-        let snap = try await userCollection("credits").getDocuments()
-        return snap.documents.compactMap { HistoryCredit(doc: $0) }
+    // MARK: - Private — SwiftData Queries
+
+    /// Fetches one page of PeriodLogs sorted by periodStart descending.
+    private func fetchPage(offset: Int, in context: ModelContext) -> ([HistoryFeedEntry], Bool) {
+        var descriptor = FetchDescriptor<PeriodLog>(
+            sortBy: [SortDescriptor(\.periodStart, order: .reverse)]
+        )
+        descriptor.fetchLimit  = pageSize
+        descriptor.fetchOffset = offset
+
+        let logs    = (try? context.fetch(descriptor)) ?? []
+        let entries = logs.map { resolve($0) }
+        return (entries, logs.count == pageSize)
     }
 
-    /// Fetches all PeriodLogs that started in the current calendar year.
-    /// Used exclusively for ROI stats — not paginated.
-    private func fetchCurrentYearLogs() async throws -> [RawPeriodLog] {
+    /// Fetches all PeriodLogs for the current calendar year (used for stats only).
+    private func fetchCurrentYearLogs(in context: ModelContext) -> [PeriodLog] {
         let year = Calendar.current.component(.year, from: Date())
         guard let startOfYear = Calendar.current.date(
             from: DateComponents(year: year, month: 1, day: 1)
         ) else { return [] }
 
-        let snap = try await userCollection("periodLogs")
-            .whereField("periodStart", isGreaterThanOrEqualTo: Timestamp(date: startOfYear))
-            .getDocuments()
-
-        return snap.documents.compactMap { RawPeriodLog(doc: $0) }
-    }
-
-    private struct PageResult {
-        let entries: [HistoryFeedEntry]
-        let cursor: DocumentSnapshot?
-        let canLoadMore: Bool
-    }
-
-    /// Fetches a single page of the activity feed, ordered by `periodStart` descending.
-    private func fetchPeriodLogsPage(after cursor: DocumentSnapshot?) async throws -> PageResult {
-        var query: Query = userCollection("periodLogs")
-            .order(by: "periodStart", descending: true)
-            .limit(to: pageSize)
-
-        if let cursor { query = query.start(afterDocument: cursor) }
-
-        let snap    = try await query.getDocuments()
-        let entries = snap.documents.compactMap { doc -> HistoryFeedEntry? in
-            guard let raw = RawPeriodLog(doc: doc) else { return nil }
-            return resolve(raw)
-        }
-
-        return PageResult(
-            entries:     entries,
-            cursor:      snap.documents.last,
-            canLoadMore: snap.documents.count == pageSize
+        let descriptor = FetchDescriptor<PeriodLog>(
+            predicate: #Predicate { $0.periodStart >= startOfYear }
         )
+        return (try? context.fetch(descriptor)) ?? []
     }
 
     // MARK: - Private — Resolution
 
-    /// Joins a raw log with card and credit metadata using the in-memory lookup maps.
-    private func resolve(_ raw: RawPeriodLog) -> HistoryFeedEntry {
-        let credit = raw.creditID.flatMap  { creditMap[$0] }
-        let card   = credit?.cardID.flatMap { cardMap[$0] }
+    /// Joins a PeriodLog with its Credit and Card metadata via SwiftData relationships.
+    /// Falls back to placeholder strings for orphaned logs (e.g. during initial sync).
+    private func resolve(_ log: PeriodLog) -> HistoryFeedEntry {
+        let credit = log.credit
+        let card   = credit?.card
 
         return HistoryFeedEntry(
-            id:               raw.id,
-            periodLabel:      raw.periodLabel,
-            periodStart:      raw.periodStart,
-            periodEnd:        raw.periodEnd,
-            status:           raw.status,
-            claimedAmount:    raw.claimedAmount,
-            creditName:       credit?.name            ?? "Unknown Credit",
-            creditTotalValue: credit?.totalValue      ?? 0,
-            cardName:         card?.name              ?? "Unknown Card",
-            gradientStartHex: card?.gradientStartHex  ?? "#A8A9AD",
-            gradientEndHex:   card?.gradientEndHex    ?? "#E8E8E8"
+            id:               log.id.uuidString,
+            periodLabel:      log.periodLabel,
+            periodStart:      log.periodStart,
+            periodEnd:        log.periodEnd,
+            status:           log.periodStatus,
+            claimedAmount:    log.claimedAmount,
+            creditName:       credit?.name              ?? "Unknown Credit",
+            creditTotalValue: credit?.totalValue        ?? 0,
+            cardName:         card?.name                ?? "Unknown Card",
+            gradientStartHex: card?.gradientStartHex    ?? "#A8A9AD",
+            gradientEndHex:   card?.gradientEndHex      ?? "#E8E8E8"
         )
     }
 
     // MARK: - Private — Stats
 
-    private func buildStats(from yearLogs: [RawPeriodLog]) -> HistoryStats {
+    private func buildStats(from yearLogs: [PeriodLog], context: ModelContext) -> HistoryStats {
         let calendar    = Calendar.current
         let formatter   = DateFormatter()
         formatter.dateFormat = "MMM"
         let currentYear = calendar.component(.year, from: Date())
 
-        let totalFees      = cardMap.values.reduce(0) { $0 + $1.annualFee }
+        // Sum annual fees across all cards (same source of truth as DashboardView).
+        let cards      = (try? context.fetch(FetchDescriptor<Card>())) ?? []
+        let totalFees  = cards.reduce(0) { $0 + $1.annualFee }
+
         let totalExtracted = yearLogs.reduce(0) { $0 + $1.claimedAmount }
 
         // Group claimed amounts by calendar month.
@@ -342,11 +249,5 @@ final class HistoryViewModel {
             totalExtracted:   totalExtracted,
             monthlyBreakdown: breakdown
         )
-    }
-
-    // MARK: - Private — Helpers
-
-    private func userCollection(_ name: String) -> CollectionReference {
-        db.collection("users").document(userID).collection(name)
     }
 }
