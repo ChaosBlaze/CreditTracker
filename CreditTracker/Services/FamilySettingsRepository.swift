@@ -66,7 +66,7 @@ final class FamilySettingsRepository {
             guard !change.document.metadata.hasPendingWrites else { continue }
 
             let data = change.document.data()
-            if data["deviceID"] as? String == deviceID, !change.document.metadata.fromCache { continue }
+            if data["deviceID"] as? String == deviceID, !change.document.metadata.isFromCache { continue }
 
             if applyChange(data: data, context: context) { didChange = true }
         }

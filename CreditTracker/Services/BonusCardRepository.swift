@@ -57,7 +57,7 @@ final class BonusCardRepository {
             guard !change.document.metadata.hasPendingWrites else { continue }
 
             let data = change.document.data()
-            if data["deviceID"] as? String == deviceID, !change.document.metadata.fromCache { continue }
+            if data["deviceID"] as? String == deviceID, !change.document.metadata.isFromCache { continue }
 
             if (data["deletedAt"] as? Timestamp) != nil {
                 if let item = fetch(id: docID, in: context) { context.delete(item); didChange = true }

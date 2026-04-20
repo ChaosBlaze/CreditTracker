@@ -74,7 +74,7 @@ final class CardRepository {
             let data = change.document.data()
 
             // Skip writes authored by this device — deviceID replaces pendingUploadIDs.
-            if data["deviceID"] as? String == deviceID, !change.document.metadata.fromCache { continue }
+            if data["deviceID"] as? String == deviceID, !change.document.metadata.isFromCache { continue }
 
             // Soft-delete: treat deletedAt field as a remote deletion signal.
             if (data["deletedAt"] as? Timestamp) != nil {
