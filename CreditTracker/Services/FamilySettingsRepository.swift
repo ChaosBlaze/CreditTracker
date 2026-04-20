@@ -38,10 +38,7 @@ final class FamilySettingsRepository {
     func startListening() {
         guard listener == nil else { return }
         listener = collection.addSnapshotListener { [weak self] snapshot, _ in
-            MainActor.assumeIsolated {
-                guard let self, let context = self.context else { return }
-                self.handleSnapshot(snapshot, context: context, deviceID: self.deviceID)
-            }
+            self?.handleSnapshot(snapshot)
         }
     }
 
@@ -54,8 +51,8 @@ final class FamilySettingsRepository {
         db.collection("users").document(userID).collection("familySettings")
     }
 
-    private func handleSnapshot(_ snapshot: QuerySnapshot?, context: ModelContext, deviceID: String) {
-        guard let snapshot else { return }
+    private func handleSnapshot(_ snapshot: QuerySnapshot?) {
+        guard let snapshot, let context else { return }
         var didChange = false
 
         for change in snapshot.documentChanges {
