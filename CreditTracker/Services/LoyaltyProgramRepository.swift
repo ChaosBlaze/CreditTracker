@@ -29,7 +29,10 @@ final class LoyaltyProgramRepository {
     func startListening() {
         guard listener == nil else { return }
         listener = collection.addSnapshotListener { [weak self] snapshot, _ in
-            self?.handleSnapshot(snapshot)
+            MainActor.assumeIsolated {
+                guard let self, let context = self.context else { return }
+                self.handleSnapshot(snapshot, context: context, deviceID: self.deviceID)
+            }
         }
     }
 
@@ -42,8 +45,8 @@ final class LoyaltyProgramRepository {
         db.collection("users").document(userID).collection("loyaltyPrograms")
     }
 
-    private func handleSnapshot(_ snapshot: QuerySnapshot?) {
-        guard let snapshot, let context else { return }
+    private func handleSnapshot(_ snapshot: QuerySnapshot?, context: ModelContext, deviceID: String) {
+        guard let snapshot else { return }
         var didChange = false
 
         for change in snapshot.documentChanges {
