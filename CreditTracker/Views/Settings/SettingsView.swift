@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var showResetConfirmation = false
     @State private var showResetDone         = false
     @State private var showJoinFamilySheet   = false
+    @State private var showExportImport      = false
 
     // MARK: - FamilySettings Accessor
 
@@ -201,6 +202,16 @@ struct SettingsView: View {
 
     private var dataSection: some View {
         Section("Data") {
+            Button {
+                showExportImport = true
+            } label: {
+                Label("Backup & Restore", systemImage: "externaldrive")
+                    .foregroundStyle(.blue)
+            }
+            .sheet(isPresented: $showExportImport) {
+                ExportImportView()
+            }
+
             Button {
                 showResetConfirmation = true
             } label: {
