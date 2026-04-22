@@ -438,10 +438,15 @@ struct JoinFamilySheet: View {
                     header: Text("Enter Family ID"),
                     footer: Text("Joining a family will wipe your current local cards and replace them with the shared family data. This cannot be undone.")
                 ) {
-                    TextField("Paste Family ID Here", text: $inputID)
+                    TextField("e.g. E0BC3", text: $inputID)
                         .font(.system(.body, design: .monospaced))
                         .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
+                        .textInputAutocapitalization(.characters)
+                        .onChange(of: inputID) { _, newValue in
+                            let filtered = newValue.uppercased().filter { $0.isLetter || $0.isNumber }
+                            let clamped = String(filtered.prefix(5))
+                            if inputID != clamped { inputID = clamped }
+                        }
 
                     if let errorMessage {
                         Text(errorMessage)
