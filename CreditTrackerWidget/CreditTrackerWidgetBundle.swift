@@ -5,6 +5,7 @@ import SwiftUI
 struct CreditTrackerWidgetBundle: WidgetBundle {
     var body: some Widget {
         CreditTrackerWidget()
+        ExpiringCreditsWidget()
     }
 }
 

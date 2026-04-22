@@ -58,6 +58,7 @@
 				Models/Enums.swift,
 				Models/PeriodLog.swift,
 				Services/PeriodEngine.swift,
+				Utilities/Color+Hex.swift,
 				Utilities/DateHelpers.swift,
 			);
 			target = AB12CD062F6E468100133B05 /* CreditTrackerWidget */;
