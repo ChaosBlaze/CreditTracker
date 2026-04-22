@@ -16,6 +16,9 @@ struct SettingsView: View {
     @State private var showResetConfirmation = false
     @State private var showResetDone         = false
     @State private var showJoinFamilySheet   = false
+    @State private var isSendingTestPush     = false
+    @State private var showTestPushResult    = false
+    @State private var testPushSuccess       = false
 
     // MARK: - FamilySettings Accessor
 
@@ -110,6 +113,43 @@ struct SettingsView: View {
                     selection: discordReminderTimeBinding,
                     displayedComponents: .hourAndMinute
                 )
+            }
+
+            // Test button — sends a silent push to all OTHER family devices so you can
+            // verify background delivery works without changing the reminder time.
+            Button {
+                guard !isSendingTestPush else { return }
+                isSendingTestPush = true
+                let hour    = familySettings?.discordReminderHour   ?? Constants.discordReminderDefaultHour
+                let minute  = familySettings?.discordReminderMinute ?? Constants.discordReminderDefaultMinute
+                let enabled = familySettings?.discordReminderEnabled ?? false
+                Task {
+                    testPushSuccess   = await DiscordFamilyPushService.shared.sendTestPush(
+                        hour: hour, minute: minute, enabled: enabled
+                    )
+                    isSendingTestPush = false
+                    showTestPushResult = true
+                }
+            } label: {
+                if isSendingTestPush {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.8)
+                        Text("Sending Test Push…").foregroundStyle(.secondary)
+                    }
+                } else {
+                    Label("Send Test Push to Family", systemImage: "paperplane.fill")
+                        .foregroundStyle(.blue)
+                }
+            }
+            .disabled(isSendingTestPush)
+            .alert("Test Push", isPresented: $showTestPushResult) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                if testPushSuccess {
+                    Text("Test push sent to other family devices. Their apps should receive a silent notification and reschedule the Discord reminder — even if the app is in the background.")
+                } else {
+                    Text("Cloud Function unreachable. Make sure 'sendFamilyDiscordPush' is deployed in your Firebase project (see CloudFunctions/index.js).")
+                }
             }
         }
     }
@@ -300,7 +340,15 @@ struct SettingsView: View {
                 } else {
                     notificationManager.cancelDiscordReminder()
                 }
-                Task { await FirestoreSyncService.shared.upload(settings) }
+                // Upload to Firestore first, then push to background family devices.
+                let hour    = settings.discordReminderHour
+                let minute  = settings.discordReminderMinute
+                Task {
+                    await FirestoreSyncService.shared.upload(settings)
+                    await DiscordFamilyPushService.shared.sendDiscordUpdate(
+                        hour: hour, minute: minute, enabled: newValue
+                    )
+                }
             }
         )
     }
@@ -333,11 +381,18 @@ struct SettingsView: View {
                 UserDefaults.standard.set(newHour,   forKey: Constants.discordReminderHourKey)
                 UserDefaults.standard.set(newMinute, forKey: Constants.discordReminderMinuteKey)
                 try? context.save()
-                if settings.discordReminderEnabled {
+                let reminderEnabled = settings.discordReminderEnabled
+                if reminderEnabled {
                     notificationManager.cancelDiscordReminder()
                     notificationManager.scheduleDiscordReminder(hour: newHour, minute: newMinute)
                 }
-                Task { await FirestoreSyncService.shared.upload(settings) }
+                // Upload to Firestore first, then push to background family devices.
+                Task {
+                    await FirestoreSyncService.shared.upload(settings)
+                    await DiscordFamilyPushService.shared.sendDiscordUpdate(
+                        hour: newHour, minute: newMinute, enabled: reminderEnabled
+                    )
+                }
             }
         )
     }

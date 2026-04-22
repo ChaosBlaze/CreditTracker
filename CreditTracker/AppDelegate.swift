@@ -54,58 +54,75 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         print("[AppDelegate] APNs registration failed: \(error.localizedDescription)")
     }
 
-    // MARK: - Silent Push Handler (Phase 3)
+    // MARK: - Silent Push Handler
 
-    /// Called by iOS when a silent push (content-available: 1) arrives.
+    /// Called by iOS when a silent push (content-available: 1) arrives — even when the
+    /// app is suspended or terminated.
     ///
-    /// ## Thread Safety
-    /// UIApplicationDelegate callbacks are dispatched on the main thread.
-    /// All SwiftData operations run via `Task { @MainActor in }`, which keeps
-    /// context access on the MainActor. `NotificationManager` is also @MainActor.
+    /// ## Prerequisites for delivery
+    /// 1. `UIBackgroundModes` contains `remote-notification` in Info.plist  ✓
+    /// 2. Push Notifications capability enabled → `aps-environment` in entitlements  ✓
+    /// 3. The FCM payload must have `apns.payload.aps.content-available = 1`
+    ///    and `apns.headers.apns-push-type = "background"` (set by the Cloud Function)
     ///
     /// ## 30-Second Budget
-    /// iOS gives the app ~30 seconds to call `completionHandler`. The Task
-    /// below is fast (one SwiftData fetch + a notification schedule), so we
-    /// are well within that budget. The `completionHandler` is always called
-    /// exactly once, regardless of the exit path.
+    /// iOS gives the app ~30 s after this delegate is called to invoke `completionHandler`.
+    /// A safety-net DispatchWorkItem fires at 27 s to guarantee the budget is not exceeded
+    /// even if the async Task takes unexpectedly long.
+    ///
+    /// ## Sender
+    /// Pushes are dispatched by the `sendFamilyDiscordPush` Firebase Cloud Function,
+    /// triggered by `DiscordFamilyPushService` whenever a family member changes settings.
     func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
+        print("[AppDelegate] Silent push received. Keys: \(userInfo.keys.map { "\($0)" })")
+
         // Filter: only process our custom Discord settings update payloads.
         guard
             let type = userInfo["type"] as? String,
             type == "discordReminderUpdated"
         else {
+            print("[AppDelegate] Ignoring push — type != discordReminderUpdated")
             completionHandler(.noData)
             return
         }
 
-        // Extract the strongly-typed payload fields.
-        // FCM data payloads are always String-valued, so we parse manually.
+        // FCM data payloads are always String-valued; parse manually.
         let senderToken   = userInfo["senderToken"]   as? String ?? ""
         let formattedTime = userInfo["formattedTime"] as? String ?? ""
         let hour          = (userInfo["hour"]   as? String).flatMap(Int.init) ?? Constants.discordReminderDefaultHour
         let minute        = (userInfo["minute"] as? String).flatMap(Int.init) ?? Constants.discordReminderDefaultMinute
         let enabled       = (userInfo["enabled"] as? String) == "true"
+        let myToken       = UserDefaults.standard.string(forKey: Constants.fcmTokenKey) ?? ""
 
-        // Our own FCM token — compare against senderToken to skip self-notifications.
-        let myToken = UserDefaults.standard.string(forKey: Constants.fcmTokenKey) ?? ""
+        print("[AppDelegate] Discord push: hour=\(hour) minute=\(minute) enabled=\(enabled) fromSelf=\(senderToken == myToken && !myToken.isEmpty)")
 
         guard let container = CreditTrackerApp.sharedModelContainer else {
-            // Container unavailable — this should never happen in production but
-            // we must still call the completion handler within the time budget.
-            print("[AppDelegate] ModelContainer not ready — cannot process silent push.")
+            print("[AppDelegate] ModelContainer not ready — skipping silent push processing.")
             completionHandler(.failed)
             return
         }
 
+        // Safety-net: guarantee completionHandler is called within iOS's 30-second budget.
+        // The Task below is fast, but this prevents a crash if something unexpected stalls.
+        var handlerCalled = false
+        let safetyNet = DispatchWorkItem {
+            guard !handlerCalled else { return }
+            handlerCalled = true
+            print("[AppDelegate] Safety-net fired — calling completionHandler(.failed)")
+            completionHandler(.failed)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 27, execute: safetyNet)
+
         Task { @MainActor in
+            defer {
+                safetyNet.cancel()   // Cancel safety-net once the Task completes normally.
+            }
 
             // ── Step 1: Update local SwiftData cache ───────────────────────────
-            // Create an independent ModelContext so this background operation
-            // doesn't interfere with any ongoing main-context transactions.
             let bgContext = ModelContext(container)
 
             var descriptor = FetchDescriptor<FamilySettings>()
@@ -115,7 +132,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             if let existing = try? bgContext.fetch(descriptor).first {
                 settings = existing
             } else {
-                // Singleton doesn't exist yet — create it from the push payload.
                 settings = FamilySettings()
                 bgContext.insert(settings)
             }
@@ -134,39 +150,33 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             // ── Step 2: Reschedule the local notification ──────────────────────
             if enabled {
                 NotificationManager.shared.scheduleDiscordReminder(hour: hour, minute: minute)
+                print("[AppDelegate] Discord reminder rescheduled → \(hour):\(String(format: "%02d", minute))")
             } else {
                 NotificationManager.shared.cancelDiscordReminder()
+                print("[AppDelegate] Discord reminder cancelled.")
             }
 
-            // ── Step 3: Alert the user if another device made the change ───────
-            // Skip the alert if: (a) we are the sender, or (b) the payload lacks
-            // a formatted time string (guard against unexpected payloads).
+            // ── Step 3: Notify the user if another device made the change ──────
             let isExternalChange = !senderToken.isEmpty && senderToken != myToken
             if isExternalChange, !formattedTime.isEmpty {
-                let content       = UNMutableNotificationContent()
-                content.title     = "Settings Updated"
-                content.body      = "Discord redeem time was changed to \(formattedTime)"
-                content.sound     = .default
+                let content   = UNMutableNotificationContent()
+                content.title = "Settings Updated"
+                content.body  = "Discord redeem time was changed to \(formattedTime)"
+                content.sound = .default
 
-                // A 1-second trigger fires immediately after the app wakes,
-                // even while it's still in the background.
                 let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
                 let request = UNNotificationRequest(
                     identifier: "discord-settings-changed-\(UUID().uuidString)",
                     content: content,
                     trigger: trigger
                 )
-                do {
-                    try await UNUserNotificationCenter.current().add(request)
-                } catch {
-                    print("[AppDelegate] Failed to schedule settings-change alert: \(error)")
-                }
-
-                completionHandler(.newData)
-            } else {
-                // Our own write echoed back — no alert needed.
-                completionHandler(isExternalChange ? .newData : .noData)
+                try? await UNUserNotificationCenter.current().add(request)
+                print("[AppDelegate] Visible alert scheduled for external change.")
             }
+
+            guard !handlerCalled else { return }
+            handlerCalled = true
+            completionHandler(isExternalChange ? .newData : .noData)
         }
     }
 }

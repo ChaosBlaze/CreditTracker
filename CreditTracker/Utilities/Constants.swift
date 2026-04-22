@@ -36,4 +36,9 @@ enum Constants {
     /// Notification identifier prefix for annual-fee reminders.
     /// Full identifier: "annualFee_<card.id.uuidString>"
     static let annualFeeReminderPrefix = "annualFee_"
+
+    // MARK: - Discord Family Push
+    /// Name of the Firebase Cloud Function that sends silent FCM pushes to family devices.
+    /// Deploy CloudFunctions/index.js to your Firebase project before using this feature.
+    static let discordPushFunctionName = "sendFamilyDiscordPush"
 }
