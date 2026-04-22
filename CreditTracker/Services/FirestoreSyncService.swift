@@ -61,10 +61,17 @@ final class FirestoreSyncService {
         if let stored = UserDefaults.standard.string(forKey: Constants.firestoreUserIDKey) {
             return stored
         }
-        let id = UUID().uuidString
+        let id = FirestoreSyncService.generateShortID()
         UserDefaults.standard.set(id, forKey: Constants.firestoreUserIDKey)
         return id
     }()
+
+    /// Generates a 5-character alphanumeric family ID.
+    /// Uses an unambiguous character set (no O/0/I/1/L) for easy manual entry.
+    static func generateShortID() -> String {
+        let chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+        return String((0..<5).map { _ in chars.randomElement()! })
+    }
 
     private init() {}
 
