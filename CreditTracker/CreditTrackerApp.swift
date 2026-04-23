@@ -20,7 +20,7 @@ struct CreditTrackerApp: App {
 
     let modelContainer: ModelContainer = {
         // Add FamilySettings to the schema alongside the existing root models.
-        let schema = Schema([Card.self, Credit.self, PeriodLog.self, BonusCard.self, FamilySettings.self, LoyaltyProgram.self, CardApplication.self])
+        let schema = Schema([Card.self, Credit.self, PeriodLog.self, BonusCard.self, FamilySettings.self, LoyaltyProgram.self, CardApplication.self, Subscription.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false, cloudKitDatabase: .none)
         do {
             let container = try ModelContainer(for: schema, configurations: [config])
@@ -85,12 +85,26 @@ struct CreditTrackerApp: App {
     private func evaluatePeriodsOnActivation() {
         let context = modelContainer.mainContext
         do {
-            let cards      = try context.fetch(FetchDescriptor<Card>())
-            let allCredits = cards.flatMap { $0.credits }
+            let cards         = try context.fetch(FetchDescriptor<Card>())
+            let allCredits    = cards.flatMap { $0.credits }
+            let subscriptions = try context.fetch(FetchDescriptor<Subscription>())
+
             PeriodEngine.evaluateAndAdvancePeriods(for: allCredits, context: context)
+
+            // Advance subscription billing dates that have already passed.
+            for sub in subscriptions {
+                if sub.advanceNextBillingDateIfPast() {
+                    Task { await FirestoreSyncService.shared.upload(sub) }
+                }
+            }
+
             try context.save()
             Task { @MainActor in
-                NotificationManager.shared.rescheduleAll(credits: allCredits)
+                NotificationManager.shared.rescheduleAll(
+                    credits: allCredits,
+                    cards: cards,
+                    subscriptions: subscriptions.filter { $0.isActive }
+                )
                 NotificationManager.shared.rescheduleAllPaymentReminders(cards: cards)
             }
         } catch {

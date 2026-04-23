@@ -148,6 +148,10 @@ final class FirestoreSyncService {
         let cardApplications = try context.fetch(FetchDescriptor<CardApplication>())
         cardApplications.forEach { context.delete($0) }
 
+        // Subscription has no parent relationship — must be wiped explicitly.
+        let subscriptions = try context.fetch(FetchDescriptor<Subscription>())
+        subscriptions.forEach { context.delete($0) }
+
         try context.save()
     }
 
@@ -194,7 +198,11 @@ final class FirestoreSyncService {
             self?.handleSnapshot(snapshot, type: .cardApplication)
         }
 
-        activeListeners.append(contentsOf: [cardReg, creditReg, logReg, settingsReg, bonusReg, loyaltyReg, appReg])
+        let subscriptionReg = collection(for: Subscription.self).addSnapshotListener { [weak self] snapshot, _ in
+            self?.handleSnapshot(snapshot, type: .subscription)
+        }
+
+        activeListeners.append(contentsOf: [cardReg, creditReg, logReg, settingsReg, bonusReg, loyaltyReg, appReg, subscriptionReg])
     }
 
     /// Removes all Firestore listeners to avoid background network traffic.
@@ -292,7 +300,7 @@ final class FirestoreSyncService {
 
     // MARK: - Snapshot Handler (Firestore → SwiftData)
 
-    private enum SyncModelType { case card, credit, periodLog, familySettings, bonusCard, loyaltyProgram, cardApplication }
+    private enum SyncModelType { case card, credit, periodLog, familySettings, bonusCard, loyaltyProgram, cardApplication, subscription }
 
     private func handleSnapshot(_ snapshot: QuerySnapshot?, type: SyncModelType) {
         guard let snapshot else { return }
@@ -324,6 +332,8 @@ final class FirestoreSyncService {
                         if let item = self.fetchLoyaltyProgram(id: docID, in: context) { context.delete(item); didApplyChanges = true }
                     case .cardApplication:
                         if let item = self.fetchCardApplication(id: docID, in: context) { context.delete(item); didApplyChanges = true }
+                    case .subscription:
+                        if let item = self.fetchSubscription(id: docID, in: context) { context.delete(item); didApplyChanges = true }
                     }
                     continue
                 }
@@ -353,6 +363,8 @@ final class FirestoreSyncService {
                     changed = self.applyLoyaltyProgramChange(docID: docID, data: change.document.data(), context: context)
                 case .cardApplication:
                     changed = self.applyCardApplicationChange(docID: docID, data: change.document.data(), context: context)
+                case .subscription:
+                    changed = self.applySubscriptionChange(docID: docID, data: change.document.data(), context: context)
                 }
 
                 if changed { didApplyChanges = true }
@@ -670,6 +682,13 @@ final class FirestoreSyncService {
         return try? context.fetch(descriptor).first
     }
 
+    private func fetchSubscription(id: String, in context: ModelContext) -> Subscription? {
+        guard let uuid = UUID(uuidString: id) else { return nil }
+        var descriptor = FetchDescriptor<Subscription>(predicate: #Predicate { $0.id == uuid })
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
+    }
+
     // MARK: - BonusCard Merge Logic
 
     /// Merges a remote `BonusCard` Firestore document into the local SwiftData store.
@@ -767,6 +786,48 @@ final class FirestoreSyncService {
         if let ts = data["applicationDate"] as? Timestamp {
             let d = ts.dateValue()
             if d != app.applicationDate { app.applicationDate = d; changed = true }
+        }
+
+        return changed
+    }
+
+    // MARK: - Subscription Merge Logic
+
+    @discardableResult
+    private func applySubscriptionChange(docID: String, data: [String: Any], context: ModelContext) -> Bool {
+        guard let uuid = UUID(uuidString: docID) else { return false }
+        let sub: Subscription
+        var isNew = false
+
+        if let existing = fetchSubscription(id: docID, in: context) {
+            sub = existing
+        } else {
+            sub = Subscription(name: "Syncing...", cost: 0, nextBillingDate: Date())
+            sub.id = uuid
+            context.insert(sub)
+            isNew = true
+        }
+
+        var changed = isNew
+
+        if let v = data["name"]            as? String, v != sub.name            { sub.name = v;            changed = true }
+        if let v = data["category"]        as? String, v != sub.category        { sub.category = v;        changed = true }
+        if let v = data["billingCycle"]    as? String, v != sub.billingCycle    { sub.billingCycle = v;    changed = true }
+        if let v = data["isActive"]        as? Bool,   v != sub.isActive        { sub.isActive = v;        changed = true }
+        if let v = data["reminderEnabled"] as? Bool,   v != sub.reminderEnabled { sub.reminderEnabled = v; changed = true }
+        if let v = data["linkedCardID"]    as? String, v != sub.linkedCardID    { sub.linkedCardID = v;    changed = true }
+        if let v = data["linkedCreditID"]  as? String, v != sub.linkedCreditID  { sub.linkedCreditID = v;  changed = true }
+        if let v = data["notes"]           as? String, v != sub.notes           { sub.notes = v;           changed = true }
+
+        let remoteCost = (data["cost"] as? Double) ?? (data["cost"] as? NSNumber)?.doubleValue
+        if let v = remoteCost, v != sub.cost { sub.cost = v; changed = true }
+
+        let remoteRDB = (data["reminderDaysBefore"] as? Int) ?? (data["reminderDaysBefore"] as? NSNumber)?.intValue
+        if let v = remoteRDB, v != sub.reminderDaysBefore { sub.reminderDaysBefore = v; changed = true }
+
+        if let ts = data["nextBillingDate"] as? Timestamp {
+            let d = ts.dateValue()
+            if d != sub.nextBillingDate { sub.nextBillingDate = d; changed = true }
         }
 
         return changed

@@ -214,6 +214,32 @@ extension CardApplication: FirestoreSyncable {
     }
 }
 
+// MARK: - Subscription Conformance
+
+extension Subscription: FirestoreSyncable {
+    var syncID: String { id.uuidString }
+
+    static var firestoreCollectionName: String { "subscriptions" }
+
+    func firestorePayload() -> [String: Any] {
+        // Both FK strings are always included (not conditional) so a remote device
+        // can observe a cleared link when the value is reset to "".
+        [
+            "name":               name,
+            "category":           category,
+            "cost":               cost,
+            "billingCycle":       billingCycle,
+            "nextBillingDate":    nextBillingDate,
+            "isActive":           isActive,
+            "reminderEnabled":    reminderEnabled,
+            "reminderDaysBefore": reminderDaysBefore,
+            "linkedCardID":       linkedCardID,
+            "linkedCreditID":     linkedCreditID,
+            "notes":              notes
+        ]
+    }
+}
+
 // MARK: - LoyaltyProgram Conformance
 
 extension LoyaltyProgram: FirestoreSyncable {
