@@ -22,6 +22,10 @@ final class PeriodLog {
         return min(claimedAmount / credit.totalValue, 1.0)
     }
 
+    var daysUntilEnd: Int {
+        DateHelpers.daysUntil(periodEnd)
+    }
+
     init(
         id: UUID = UUID(),
         periodLabel: String,

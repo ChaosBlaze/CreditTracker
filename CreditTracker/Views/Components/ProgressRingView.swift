@@ -50,7 +50,7 @@ struct ProgressRingView: View {
             }
         }
         .onChange(of: fraction) { _, newValue in
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) {
                 animatedFraction = newValue
             }
         }

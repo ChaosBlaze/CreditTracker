@@ -74,8 +74,8 @@ struct CreditRowView: View {
         .sensoryFeedback(.impact(weight: .light), trigger: openHapticTrigger)
         .sheet(isPresented: $showLogModal) {
             CreditLoggingView(credit: credit, card: card)
-                .presentationDetents([.height(320)])
-                .presentationDragIndicator(.hidden)
+                .presentationDetents([.height(360)])
+                .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
         }
     }
