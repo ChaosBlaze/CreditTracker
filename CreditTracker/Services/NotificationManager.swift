@@ -101,7 +101,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     ///   - cards: All cards — used to restore payment and annual-fee reminders.
     ///            Defaults to `[]` for backward-compatibility with existing call sites
     ///            that only pass credits.
-    func rescheduleAll(credits: [Credit], cards: [Card] = []) {
+    func rescheduleAll(credits: [Credit], cards: [Card] = [], subscriptions: [Subscription] = []) {
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
 
         // Credit period reminders
@@ -117,6 +117,11 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         for card in cards {
             schedulePaymentReminder(for: card)
             scheduleAnnualFeeReminder(for: card)
+        }
+
+        // Subscription renewal reminders
+        for sub in subscriptions where sub.isActive {
+            scheduleSubscriptionReminder(for: sub)
         }
 
         // Restore the discord reminder if it was enabled — removeAll wipes it too
@@ -267,6 +272,43 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     func cancelAnnualFeeReminder(for card: Card) {
         let identifier = Constants.annualFeeReminderPrefix + card.id.uuidString
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
+    }
+
+    // MARK: - Subscription renewal reminders
+
+    func scheduleSubscriptionReminder(for subscription: Subscription) {
+        guard subscription.isActive, subscription.reminderEnabled else { return }
+
+        let name = subscription.name
+        let days = subscription.reminderDaysBefore
+        let identifier = "subscription_\(subscription.id.uuidString)"
+
+        guard let reminderDate = Calendar.current.date(
+            byAdding: .day,
+            value: -days,
+            to: subscription.nextBillingDate
+        ), reminderDate > Date() else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Subscription Renewing Soon"
+        content.body  = "\(name) renews in \(days) day\(days == 1 ? "" : "s"). Check if your credit covers it."
+        content.sound = .default
+
+        var components = Calendar.current.dateComponents([.year, .month, .day], from: reminderDate)
+        components.hour   = 9
+        components.minute = 0
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error { print("Failed to schedule subscription reminder for \(name): \(error)") }
+        }
+    }
+
+    func cancelSubscriptionReminder(for subscription: Subscription) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: ["subscription_\(subscription.id.uuidString)"]
+        )
     }
 
     // MARK: - Test notification
